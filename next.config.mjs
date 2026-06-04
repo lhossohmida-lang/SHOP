@@ -5,8 +5,10 @@ const nextConfig = {
   reactStrictMode: true,
   output: isAndroidBuild ? "export" : "standalone",
   images: { unoptimized: true },
-  eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
+  turbopack: {
+    root: ".",
+  },
 };
 
 export default nextConfig;

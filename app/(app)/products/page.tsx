@@ -17,6 +17,7 @@ export default function ProductsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
 
   const filtered = products.filter(
     (p) =>
@@ -47,9 +48,8 @@ export default function ProductsPage() {
     }
   };
 
-  const handleDelete = async (p: Product) => {
-    if (!storeId || !confirm(`حذف "${p.nameAr || p.name}"؟`)) return;
-    await deleteProduct(storeId, p.id);
+  const handleDelete = (p: Product) => {
+    setProductToDelete(p);
   };
 
   return (
@@ -198,6 +198,39 @@ export default function ProductsPage() {
           onClose={closeForm}
           saving={saving}
         />
+      )}
+
+      {/* Custom Delete Confirmation Modal */}
+      {productToDelete && (
+        <div className="modal-overlay" onClick={() => setProductToDelete(null)}>
+          <div className="card animate-slide-up" style={{ width: "100%", maxWidth: "420px" }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ fontWeight: 700, marginBottom: "0.75rem", color: "#dc2626" }}>تأكيد حذف المنتج</h3>
+            <p style={{ color: "#4b5563", fontSize: "0.875rem", marginBottom: "1.25rem" }}>
+              هل أنت متأكد من رغبتك في حذف المنتج <strong>"{productToDelete.nameAr || productToDelete.name}"</strong> نهائياً؟ لا يمكن التراجع عن هذا الإجراء.
+            </p>
+            <div style={{ display: "flex", gap: "0.75rem" }}>
+              <button onClick={() => setProductToDelete(null)} className="btn-secondary" style={{ flex: 1, justifyContent: "center" }}>
+                إلغاء
+              </button>
+              <button
+                onClick={async () => {
+                  if (!storeId) return;
+                  const p = productToDelete;
+                  setProductToDelete(null);
+                  try {
+                    await deleteProduct(storeId, p.id);
+                  } catch (e) {
+                    alert("خطأ أثناء حذف المنتج: " + e);
+                  }
+                }}
+                className="btn-danger"
+                style={{ flex: 1, justifyContent: "center" }}
+              >
+                تأكيد الحذف
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

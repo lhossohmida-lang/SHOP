@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
         "X-Title": "Blgasm POS",
       },
       body: JSON.stringify({
-        model: process.env.NEXT_PUBLIC_AI_MODEL || "google/gemini-flash-1.5",
+        model: process.env.NEXT_PUBLIC_AI_MODEL || "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: message },

@@ -1,7 +1,11 @@
 "use client";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
+import { useProducts } from "@/hooks/useProducts";
+import { getPosShortcuts } from "@/lib/firestore/shortcuts";
+import type { Product } from "@/types/product";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -13,6 +17,7 @@ import {
   Sparkles,
   LogOut,
   Store,
+  Zap,
 } from "lucide-react";
 
 const navItems = [
@@ -29,6 +34,19 @@ const navItems = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { appUser, logOut } = useAuth();
+  const storeId = appUser?.storeId;
+  const { activeProducts } = useProducts(storeId);
+  const [shortcuts, setShortcuts] = useState<(Product | null)[]>(Array(9).fill(null));
+
+  useEffect(() => {
+    if (!storeId || activeProducts.length === 0 || pathname !== "/pos") return;
+    getPosShortcuts(storeId).then((data) => {
+      const resolved = data.slots.map((id) =>
+        id ? activeProducts.find((p) => p.id === id) ?? null : null
+      );
+      setShortcuts(resolved);
+    });
+  }, [storeId, activeProducts, pathname]);
 
   return (
     <aside
@@ -108,6 +126,85 @@ export default function Sidebar() {
           })}
         </ul>
       </nav>
+
+      {/* POS Shortcuts Grid */}
+      {pathname === "/pos" && (
+        <div style={{
+          padding: "0.75rem 1rem",
+          borderTop: "1px solid #f3f4f6",
+          background: "#fafafa",
+        }}>
+          <div style={{
+            fontSize: "0.75rem",
+            fontWeight: 700,
+            color: "#4b5563",
+            marginBottom: "0.5rem",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.25rem",
+          }}>
+            <Zap size={13} color="#f59e0b" fill="#f59e0b" /> الاختصارات السريعة
+          </div>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, 1fr)",
+            gap: "0.35rem",
+          }}>
+            {shortcuts.map((p, idx) => (
+              <button
+                key={idx}
+                onClick={() => {
+                  if (p) {
+                    const event = new CustomEvent("add-shortcut-product", { detail: p });
+                    window.dispatchEvent(event);
+                  }
+                }}
+                disabled={!p}
+                title={p ? `${p.nameAr || p.name} — ${p.sellingPrice} د.ج` : "فارغ"}
+                style={{
+                  height: "56px",
+                  borderRadius: "0.5rem",
+                  border: p ? "1px solid #c5e5b8" : "1px dashed #e5e7eb",
+                  background: p ? (p.stock === 0 ? "#fff5f5" : "#f1f8ee") : "#fafafa",
+                  cursor: p ? "pointer" : "default",
+                  fontSize: "0.68rem",
+                  fontWeight: 700,
+                  color: p ? (p.stock === 0 ? "#dc2626" : "#17231c") : "#d1d5db",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "0.25rem",
+                  textAlign: "center",
+                  lineHeight: "1.1",
+                  transition: "all 0.1s",
+                  boxShadow: p ? "0 1px 3px rgba(0,0,0,0.02)" : "none",
+                }}
+              >
+                {p ? (
+                  <>
+                    <span style={{
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      maxWidth: "100%",
+                    }}>
+                      {p.nameAr || p.name}
+                    </span>
+                    <span style={{ fontSize: "0.58rem", color: "#26683a", marginTop: "2px" }}>
+                      {p.sellingPrice}
+                    </span>
+                  </>
+                ) : (
+                  "—"
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* User + Logout */}
       <div

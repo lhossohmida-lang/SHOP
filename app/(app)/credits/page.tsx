@@ -3,12 +3,12 @@ import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useCredits } from "@/hooks/useCredits";
 import {
-  addCreditCustomer, updateCreditCustomer,
+  addCreditCustomer, updateCreditCustomer, deleteCreditCustomer,
   addCreditTransaction, getCreditTransactions,
 } from "@/lib/firestore/credits";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDateTime } from "@/lib/utils/date";
-import { Plus, X, Search, CreditCard, Phone, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, X, Search, CreditCard, Phone, ChevronDown, ChevronUp, Calendar, Trash2 } from "lucide-react";
 import type { CreditCustomer, CreditTransaction } from "@/types/credit";
 
 // At module scope — prevents focus-loss bug
@@ -41,10 +41,15 @@ export default function CreditsPage() {
   const [newPhone, setNewPhone] = useState("");
   const [newAddress, setNewAddress] = useState("");
   const [creditLimit, setCreditLimit] = useState<number | "">(50000);
+  const [newDueDate, setNewDueDate] = useState("");
 
   // Payment fields
   const [payAmount, setPayAmount] = useState<number | "">("");
   const [payNote, setPayNote] = useState("");
+  const [payDate, setPayDate] = useState(() => new Date().toISOString().split("T")[0]);
+
+  // Delete customer field
+  const [customerToDelete, setCustomerToDelete] = useState<CreditCustomer | null>(null);
 
   const filtered = customers.filter(
     (c) => !search || c.name.includes(search) || c.phone.includes(search)
@@ -68,6 +73,7 @@ export default function CreditsPage() {
     setSelectedCustomer(c);
     setPayAmount("");
     setPayNote("");
+    setPayDate(new Date().toISOString().split("T")[0]);
     setShowPayment(true);
   };
 
@@ -79,13 +85,14 @@ export default function CreditsPage() {
       await addCreditCustomer(storeId, {
         name: newName.trim(),
         phone: newPhone.trim(),
-        address: newAddress.trim() || undefined,
+        address: newAddress.trim() || "",
         totalDebt: 0,
         creditLimit: Number(creditLimit) || 50000,
         isActive: true,
+        dueDate: newDueDate || "",
       });
       setShowAddCustomer(false);
-      setNewName(""); setNewPhone(""); setNewAddress(""); setCreditLimit(50000);
+      setNewName(""); setNewPhone(""); setNewAddress(""); setCreditLimit(50000); setNewDueDate("");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMsg("خطأ في إضافة العميل: " + msg);
@@ -109,12 +116,13 @@ export default function CreditsPage() {
         amount,
         balanceBefore,
         balanceAfter,
-        note: payNote || undefined,
+        note: payNote.trim() || "",
         createdBy: appUser!.uid,
+        createdAt: new Date(payDate),
       });
       await updateCreditCustomer(storeId, selectedCustomer.id, {
         totalDebt: balanceAfter,
-        lastTransactionAt: new Date(),
+        lastTransactionAt: new Date(payDate),
       });
       setShowPayment(false);
       setSelectedCustomer(null);
@@ -196,8 +204,25 @@ export default function CreditsPage() {
                 </div>
                 <div>
                   <div style={{ fontWeight: 600, color: "#17231c" }}>{c.name}</div>
-                  <div style={{ fontSize: "0.75rem", color: "#6b7280", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                    <Phone size={12} /> {c.phone || "—"}
+                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginTop: "0.15rem" }}>
+                    <div style={{ fontSize: "0.75rem", color: "#6b7280", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                      <Phone size={12} /> {c.phone || "—"}
+                    </div>
+                    {c.dueDate && (
+                      <div style={{
+                        fontSize: "0.72rem",
+                        padding: "1px 6px",
+                        borderRadius: "4px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.25rem",
+                        background: new Date(c.dueDate) <= new Date() ? "#fef2f2" : "#f3f4f6",
+                        color: new Date(c.dueDate) <= new Date() ? "#dc2626" : "#4b5563",
+                        fontWeight: new Date(c.dueDate) <= new Date() ? 600 : 400,
+                      }}>
+                        <Calendar size={11} /> استحقاق: {c.dueDate}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -210,6 +235,14 @@ export default function CreditsPage() {
                 </div>
                 <button onClick={() => openPayment(c)} className="btn-primary" style={{ padding: "0.375rem 0.75rem", fontSize: "0.8rem" }}>
                   <CreditCard size={14} /> دفعة
+                </button>
+                <button
+                  onClick={() => setCustomerToDelete(c)}
+                  className="btn-danger"
+                  style={{ padding: "0.375rem 0.5rem" }}
+                  title="حذف الحساب"
+                >
+                  <Trash2 size={14} />
                 </button>
                 <button onClick={() => toggleExpand(c)} className="btn-secondary" style={{ padding: "0.375rem 0.5rem" }}>
                   {expandedId === c.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -277,6 +310,9 @@ export default function CreditsPage() {
               <FormField label="حد الائتمان (د.ج)">
                 <input type="number" className="input-field" value={creditLimit} onChange={(e) => setCreditLimit(e.target.value === "" ? "" : Number(e.target.value))} dir="ltr" style={{ textAlign: "left" }} />
               </FormField>
+              <FormField label="تاريخ استحقاق الدفع">
+                <input type="date" className="input-field" value={newDueDate} onChange={(e) => setNewDueDate(e.target.value)} />
+              </FormField>
             </div>
             {errorMsg && <p style={{ color: "#dc2626", fontSize: "0.8rem", marginTop: "0.5rem" }}>{errorMsg}</p>}
             <div style={{ display: "flex", gap: "0.75rem", marginTop: "1.25rem" }}>
@@ -305,6 +341,9 @@ export default function CreditsPage() {
               <FormField label="مبلغ الدفعة (د.ج) *">
                 <input type="number" min="0" max={selectedCustomer.totalDebt} className="input-field" value={payAmount} onChange={(e) => setPayAmount(e.target.value === "" ? "" : Number(e.target.value))} dir="ltr" style={{ textAlign: "left" }} autoFocus />
               </FormField>
+              <FormField label="تاريخ الدفعة">
+                <input type="date" className="input-field" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
+              </FormField>
               <FormField label="ملاحظة">
                 <input className="input-field" value={payNote} onChange={(e) => setPayNote(e.target.value)} placeholder="اختياري" autoComplete="off" />
               </FormField>
@@ -319,6 +358,40 @@ export default function CreditsPage() {
               <button onClick={() => setShowPayment(false)} className="btn-secondary" style={{ flex: 1, justifyContent: "center" }}>إلغاء</button>
               <button onClick={handlePayment} disabled={saving || !payAmount || Number(payAmount) <= 0} className="btn-primary" style={{ flex: 2, justifyContent: "center" }}>
                 {saving ? "جارٍ الحفظ..." : "تأكيد الدفعة"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Customer Confirmation Modal */}
+      {customerToDelete && (
+        <div className="modal-overlay" onClick={() => setCustomerToDelete(null)}>
+          <div className="card animate-slide-up" style={{ width: "100%", maxWidth: "420px" }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ fontWeight: 700, marginBottom: "0.75rem", color: "#dc2626" }}>تأكيد حذف الحساب</h3>
+            <p style={{ color: "#4b5563", fontSize: "0.875rem", marginBottom: "1.25rem" }}>
+              هل أنت متأكد من رغبتك في حذف حساب العميل <strong>"{customerToDelete.name}"</strong> نهائياً؟ 
+              سيؤدي هذا إلى مسح الحساب بالكامل وتصفير رصيد مديونيته البالغ <strong>{formatCurrency(customerToDelete.totalDebt)}</strong>.
+            </p>
+            <div style={{ display: "flex", gap: "0.75rem" }}>
+              <button onClick={() => setCustomerToDelete(null)} className="btn-secondary" style={{ flex: 1, justifyContent: "center" }}>
+                إلغاء
+              </button>
+              <button
+                onClick={async () => {
+                  if (!storeId) return;
+                  const c = customerToDelete;
+                  setCustomerToDelete(null);
+                  try {
+                    await deleteCreditCustomer(storeId, c.id);
+                  } catch (e) {
+                    alert("خطأ أثناء حذف العميل: " + e);
+                  }
+                }}
+                className="btn-danger"
+                style={{ flex: 1, justifyContent: "center" }}
+              >
+                تأكيد الحذف
               </button>
             </div>
           </div>

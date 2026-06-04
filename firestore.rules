@@ -46,45 +46,34 @@ service cloud.firestore {
       allow delete: if false;
 
       match /products/{productId} {
-        allow read: if isAuth();
-        allow create, update: if isAuth();
-        allow delete: if isAuth() && isAdmin();
+        allow read, write: if isAuth();
       }
 
       match /sales/{saleId} {
-        allow read: if isAuth();
-        allow create: if isAuth();
-        allow update: if false;
-        allow delete: if isAuth() && isAdmin();
+        allow read, write: if isAuth();
       }
 
       match /purchases/{purchaseId} {
-        allow read: if isAuth();
-        allow create: if isAuth();
-        allow update: if isAuth() && isAdmin();
-        allow delete: if isAuth() && isAdmin();
+        allow read, write: if isAuth();
       }
 
       match /creditCustomers/{customerId} {
-        allow read: if isAuth();
-        allow create, update: if isAuth();
-        allow delete: if isAuth() && isAdmin();
+        allow read, write: if isAuth();
       }
 
       match /creditTransactions/{txId} {
-        allow read: if isAuth();
-        allow create: if isAuth();
-        allow update: if false;
-        allow delete: if isAuth() && isAdmin();
+        allow read, write: if isAuth();
       }
 
       match /auditLog/{logId} {
-        allow read: if isAuth();
-        allow create: if isAuth();
-        allow update, delete: if false;
+        allow read, write: if isAuth();
       }
 
       match /syncQueue/{opId} {
+        allow read, write: if isAuth();
+      }
+
+      match /settings/{settingId} {
         allow read, write: if isAuth();
       }
     }

@@ -56,7 +56,7 @@ export function ProductForm({ initial, onSave, onClose, saving }: ProductFormPro
       minStock: Number(minStock) || 5,
       unit,
       isActive,
-      expiryDate: expiryDate || undefined,
+      expiryDate: expiryDate || "",
     });
   };
 

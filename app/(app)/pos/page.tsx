@@ -1,32 +1,21 @@
 "use client";
-import { useState, useCallback, useRef } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { useCredits } from "@/hooks/useCredits";
 import { useUsbScanner } from "@/hooks/useUsbScanner";
+import { usePosCart } from "@/hooks/usePosCart";
 import { addSale } from "@/lib/firestore/sales";
 import { updateStock } from "@/lib/firestore/products";
 import { addCreditTransaction, updateCreditCustomer } from "@/lib/firestore/credits";
-import { formatCurrency } from "@/lib/utils/currency";
 import { generateReceiptNumber } from "@/lib/utils/date";
 import { printReceipt } from "@/lib/utils/print";
 import BarcodeScanner from "@/components/pos/BarcodeScanner";
-import {
-  Search, Plus, Minus, Trash2, ShoppingCart,
-  X, Printer, Camera, ScanLine, CreditCard, Banknote, UserCheck
-} from "lucide-react";
-import type { Product } from "@/types/product";
+import PosTable from "@/components/pos/PosTable";
+import PosSummary from "@/components/pos/PosSummary";
+import { Search, Camera, ScanLine, X, UserCheck, Trash2 } from "lucide-react";
 import type { Sale } from "@/types/sale";
-
-interface CartItem {
-  productId: string;
-  productName: string;
-  quantity: number;
-  unitPrice: number; // dynamically becomes sellingPrice or purchasePrice
-  totalPrice: number;
-  purchasePrice: number;
-  sellingPrice: number;
-}
+import type { Product } from "@/types/product";
 
 export default function PosPage() {
   const { appUser } = useAuth();
@@ -34,636 +23,372 @@ export default function PosPage() {
   const { activeProducts } = useProducts(storeId);
   const { activeCustomers } = useCredits(storeId);
 
+  const cart = usePosCart();
+  const [mode, setMode] = useState<"cash" | "credit">("cash");
   const [search, setSearch] = useState("");
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [discount, setDiscount] = useState(0);
-  const [showCameraScanner, setShowCameraScanner] = useState(false);
-
-  // Flow State
-  const [showCashModal, setShowCashModal] = useState(false);
-  const [showCreditModal, setShowCreditModal] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState("");
-  const [customerSearch, setCustomerSearch] = useState("");
-  const [note, setNote] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [successMsg, setSuccessMsg] = useState("");
+  const [toast, setToast] = useState("");
+
+  // Credit customer selection
+  const [showCreditPanel, setShowCreditPanel] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<{ id: string; name: string; totalDebt: number; creditLimit: number } | null>(null);
+  const [custSearch, setCustSearch] = useState("");
+
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Calculations
-  const cashSubtotal = cart.reduce((s, i) => s + (i.purchasePrice * i.quantity), 0);
-  const cashTotal = Math.max(0, cashSubtotal - discount);
+  useEffect(() => { searchRef.current?.focus(); }, []);
 
-  const creditSubtotal = cart.reduce((s, i) => s + (i.sellingPrice * i.quantity), 0);
-  const creditTotal = Math.max(0, creditSubtotal - discount);
-
-  const addToCart = useCallback((product: Product) => {
-    if (product.stock === 0) return;
-    setCart((prev) => {
-      const existing = prev.find((i) => i.productId === product.id);
-      if (existing) {
-        return prev.map((i) =>
-          i.productId === product.id
-            ? {
-                ...i,
-                quantity: i.quantity + 1,
-                totalPrice: (i.quantity + 1) * i.sellingPrice,
-              }
-            : i
-        );
+  // Listen for sidebar shortcut addition
+  useEffect(() => {
+    const handleShortcutAdd = (e: Event) => {
+      const p = (e as CustomEvent).detail as Product;
+      if (p) {
+        cart.addProduct(p);
       }
-      return [
-        ...prev,
-        {
-          productId: product.id,
-          productName: product.nameAr || product.name,
-          quantity: 1,
-          unitPrice: product.sellingPrice,
-          totalPrice: product.sellingPrice,
-          purchasePrice: product.purchasePrice,
-          sellingPrice: product.sellingPrice,
-        },
-      ];
-    });
+    };
+    window.addEventListener("add-shortcut-product", handleShortcutAdd);
+    return () => window.removeEventListener("add-shortcut-product", handleShortcutAdd);
+  }, [cart]);
+
+  // F1 → open new POS window
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "F1") {
+        e.preventDefault();
+        window.open(window.location.href, "_blank", "width=1200,height=800,menubar=no,toolbar=no,status=no");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const handleBarcodeScanned = useCallback(
-    (barcode: string) => {
-      const product = activeProducts.find(
-        (p) => p.barcode === barcode || p.barcode === barcode.trim()
-      );
-      if (product) {
-        addToCart(product);
-        setSearch("");
-      } else {
-        setSearch(barcode);
-        searchRef.current?.focus();
-      }
-      setShowCameraScanner(false);
-    },
-    [activeProducts, addToCart]
-  );
+  const suggestions = search.trim().length > 0
+    ? activeProducts.filter(p =>
+        p.nameAr.includes(search) ||
+        p.name.toLowerCase().includes(search.toLowerCase()) ||
+        (p.barcode && p.barcode.includes(search))
+      ).slice(0, 8)
+    : [];
 
-  useUsbScanner(handleBarcodeScanned, !showCashModal && !showCreditModal && !showCameraScanner);
+  const handleBarcode = useCallback((code: string) => {
+    const p = activeProducts.find(p => p.barcode === code.trim());
+    if (p) { cart.addProduct(p); setSearch(""); setShowDropdown(false); }
+    else { setSearch(code); setShowDropdown(true); }
+    setShowCamera(false);
+  }, [activeProducts, cart]);
 
-  const updateQty = (productId: string, delta: number) => {
-    setCart((prev) =>
-      prev
-        .map((i) =>
-          i.productId === productId
-            ? {
-                ...i,
-                quantity: Math.max(0, i.quantity + delta),
-                totalPrice: Math.max(0, i.quantity + delta) * i.sellingPrice,
-              }
-            : i
-        )
-        .filter((i) => i.quantity > 0)
-    );
-  };
+  useUsbScanner(handleBarcode, !showCamera && !showCreditPanel);
 
-  const removeItem = (productId: string) =>
-    setCart((prev) => prev.filter((i) => i.productId !== productId));
+  const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
-  // Process the Cash Sale using the purchasePrice
-  const handleCashSale = async () => {
-    if (!storeId || cart.length === 0) return;
-    setLoading(true);
-    try {
-      const receiptNumber = generateReceiptNumber();
-
-      // Transform items to use purchasePrice
-      const finalizedItems = cart.map(item => ({
-        productId: item.productId,
-        productName: item.productName,
-        quantity: item.quantity,
-        unitPrice: item.purchasePrice,
-        totalPrice: item.purchasePrice * item.quantity,
+  const processLines = (useSellingPrice: boolean) =>
+    cart.lines
+      .filter(l => l.quantity > 0)
+      .map(l => ({
+        productId: l.productId,
+        productName: l.productName,
+        quantity: l.quantity,
+        unitPrice: useSellingPrice ? l.sellingPrice : l.purchasePrice,
+        totalPrice: (useSellingPrice ? l.sellingPrice : l.purchasePrice) * l.quantity,
       }));
 
-      const saleData: Omit<Sale, "id" | "createdAt"> = {
-        type: "sale",
-        items: finalizedItems,
-        subtotal: cashSubtotal,
-        discount,
-        tax: 0,
-        total: cashTotal,
-        paymentMethod: "cash",
-        cashierId: appUser!.uid,
-        cashierName: appUser!.displayName,
-        note: note || "دفع نقداً (سعر الشراء)",
-        receiptNumber,
-        storeId,
-      };
-
-      const saleId = await addSale(storeId, saleData);
-
-      for (const item of cart) {
-        await updateStock(storeId, item.productId, -item.quantity);
-      }
-
-      printReceipt({ ...saleData, id: saleId, createdAt: new Date() });
-
-      setCart([]);
-      setDiscount(0);
-      setNote("");
-      setShowCashModal(false);
-      setSuccessMsg(`✅ تم البيع نقداً: ${receiptNumber}`);
-      setTimeout(() => setSuccessMsg(""), 3500);
-    } catch (e) {
-      alert("خطأ أثناء البيع نقداً: " + e);
-    } finally {
-      setLoading(false);
+  const handleConfirm = async () => {
+    if (!storeId || cart.lines.length === 0) return;
+    if (mode === "credit" && !selectedCustomer) {
+      setShowCreditPanel(true);
+      return;
     }
-  };
-
-  // Process the Credit Sale using the sellingPrice
-  const handleCreditSale = async () => {
-    if (!storeId || cart.length === 0 || !selectedCustomer) return;
     setLoading(true);
     try {
-      const customer = activeCustomers.find(c => c.id === selectedCustomer);
-      if (!customer) throw new Error("لم يتم العثور على العميل");
+      const isCash = mode === "cash";
+      const items = processLines(!isCash);
+      
+      if (items.length === 0) {
+        showMsg("❌ خطأ: لا توجد منتجات صالحة للبيع بالسلّة");
+        setLoading(false);
+        return;
+      }
 
+      const subtotal = isCash ? cart.buySubtotal : cart.sellSubtotal;
+      const total = isCash ? cart.buyTotal : cart.sellTotal;
       const receiptNumber = generateReceiptNumber();
 
-      // Transform items to use sellingPrice
-      const finalizedItems = cart.map(item => ({
-        productId: item.productId,
-        productName: item.productName,
-        quantity: item.quantity,
-        unitPrice: item.sellingPrice,
-        totalPrice: item.sellingPrice * item.quantity,
-      }));
-
       const saleData: Omit<Sale, "id" | "createdAt"> = {
-        type: "sale",
-        items: finalizedItems,
-        subtotal: creditSubtotal,
-        discount,
-        tax: 0,
-        total: creditTotal,
-        paymentMethod: "credit",
-        customerId: customer.id,
-        customerName: customer.name,
+        type: "sale", items, subtotal,
+        discount: cart.effectiveDiscount, tax: 0, total,
+        paymentMethod: isCash ? "cash" : "credit",
+        customerId: selectedCustomer?.id || "",
+        customerName: selectedCustomer?.name || "",
         cashierId: appUser!.uid,
         cashierName: appUser!.displayName,
-        note: note || "بيع بالآجل (كريدي)",
-        receiptNumber,
-        storeId,
+        receiptNumber, storeId,
       };
 
       const saleId = await addSale(storeId, saleData);
 
-      for (const item of cart) {
-        await updateStock(storeId, item.productId, -item.quantity);
+      for (const l of cart.lines.filter(l => l.quantity > 0)) {
+        await updateStock(storeId, l.productId, -l.quantity);
       }
 
-      const balanceBefore = customer.totalDebt;
-      const balanceAfter = balanceBefore + creditTotal;
-      await addCreditTransaction(storeId, {
-        customerId: customer.id,
-        customerName: customer.name,
-        type: "purchase",
-        amount: creditTotal,
-        balanceBefore,
-        balanceAfter,
-        saleId,
-        createdBy: appUser!.uid,
-      });
-
-      await updateCreditCustomer(storeId, customer.id, {
-        totalDebt: balanceAfter,
-        lastTransactionAt: new Date(),
-      });
+      if (mode === "credit" && selectedCustomer) {
+        const balanceBefore = selectedCustomer.totalDebt;
+        const balanceAfter = balanceBefore + total;
+        await addCreditTransaction(storeId, {
+          customerId: selectedCustomer.id,
+          customerName: selectedCustomer.name,
+          type: "purchase",
+          amount: total, balanceBefore, balanceAfter,
+          saleId, createdBy: appUser!.uid,
+        });
+        await updateCreditCustomer(storeId, selectedCustomer.id, {
+          totalDebt: balanceAfter, lastTransactionAt: new Date(),
+        });
+      }
 
       printReceipt({ ...saleData, id: saleId, createdAt: new Date() });
-
-      setCart([]);
-      setDiscount(0);
-      setNote("");
-      setSelectedCustomer("");
-      setShowCreditModal(false);
-      setSuccessMsg(`✅ تم البيع كريدي: ${receiptNumber}`);
-      setTimeout(() => setSuccessMsg(""), 3500);
+      cart.clearCart();
+      setSelectedCustomer(null);
+      showMsg(`✅ تم البيع — ${receiptNumber}`);
     } catch (e) {
-      alert("خطأ أثناء البيع كريدي: " + e);
+      showMsg("❌ خطأ: " + e);
     } finally {
       setLoading(false);
     }
   };
 
   const filteredCustomers = activeCustomers.filter(c =>
-    !customerSearch || c.name.includes(customerSearch) || c.phone.includes(customerSearch)
+    !custSearch || c.name.includes(custSearch) || c.phone.includes(custSearch)
   );
 
   return (
-    <div style={{ display: "flex", gap: "1rem", height: "calc(100vh - 100px)" }}>
-      {/* Camera scanner */}
-      {showCameraScanner && (
-        <BarcodeScanner
-          onScan={handleBarcodeScanned}
-          onClose={() => setShowCameraScanner(false)}
-        />
-      )}
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 80px)", gap: "0.75rem" }}>
 
-      {/* Success toast */}
-      {successMsg && (
+      {/* Toast */}
+      {toast && (
         <div style={{
           position: "fixed", top: "1rem", left: "50%", transform: "translateX(-50%)",
-          background: "#26683a", color: "white", padding: "0.75rem 1.5rem",
-          borderRadius: "0.75rem", zIndex: 100, fontSize: "0.875rem", fontWeight: 600,
-          boxShadow: "0 4px 20px rgba(38,104,58,0.4)",
-        }}>
-          {successMsg}
-        </div>
+          padding: "0.75rem 1.5rem", borderRadius: "0.75rem", zIndex: 200,
+          background: toast.startsWith("❌") ? "#dc2626" : "#26683a",
+          color: "white", fontWeight: 600, fontSize: "0.875rem",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
+        }}>{toast}</div>
       )}
 
-      {/* LEFT AREA: Control boxes & Search */}
-      <div style={{ flex: "0 0 60%", display: "flex", flexDirection: "column", gap: "1rem", overflow: "hidden" }}>
-        
-        {/* Search bar */}
-        <div style={{ display: "flex", gap: "0.5rem" }}>
-          <div style={{ position: "relative", flex: 1 }}>
-            <Search size={16} style={{ position: "absolute", right: "0.75rem", top: "50%", transform: "translateY(-50%)", color: "#9ca3af" }} />
-            <input
-              ref={searchRef}
-              className="input-field"
-              style={{ paddingRight: "2.25rem" }}
-              placeholder="ابحث باسم المنتج أو الباركود لإضافته مباشرة..."
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                // Auto-add product if barcode matches exactly
-                const found = activeProducts.find(p => p.barcode === e.target.value.trim());
-                if (found) {
-                  addToCart(found);
-                  setSearch("");
-                }
-              }}
-            />
-          </div>
-          <button
-            onClick={() => setShowCameraScanner(true)}
-            style={{
-              padding: "0 0.875rem", borderRadius: "0.5rem",
-              border: "1px solid #c5e5b8", background: "#f1f8ee",
-              cursor: "pointer", color: "#49a35c",
-              display: "flex", alignItems: "center", gap: "0.375rem",
-              fontSize: "0.8rem", fontWeight: 500,
-            }}
-          >
-            <Camera size={18} /> كاميرا
-          </button>
-          <button
-            onClick={() => searchRef.current?.focus()}
-            style={{
-              padding: "0 0.875rem", borderRadius: "0.5rem",
-              border: "1px solid #e5e7eb", background: "#f9fafb",
-              cursor: "pointer", color: "#6b7280",
-              display: "flex", alignItems: "center", gap: "0.375rem",
-              fontSize: "0.8rem",
-            }}
-          >
-            <ScanLine size={18} /> USB
-          </button>
-        </div>
+      {showCamera && (
+        <BarcodeScanner onScan={handleBarcode} onClose={() => setShowCamera(false)} />
+      )}
 
-        {/* Suggestion list if typing search */}
-        {search.trim().length > 1 && (
-          <div style={{
-            background: "white", border: "1px solid #e5e7eb", borderRadius: "0.75rem",
-            maxHeight: "150px", overflowY: "auto", boxShadow: "0 4px 12px rgba(0,0,0,0.05)"
-          }}>
-            {activeProducts
-              .filter(p => p.nameAr.includes(search) || p.name.toLowerCase().includes(search.toLowerCase()) || p.barcode.includes(search))
-              .map(p => (
-                <button
-                  key={p.id}
-                  onClick={() => { addToCart(p); setSearch(""); }}
-                  style={{
-                    width: "100%", padding: "0.625rem 1rem", background: "none", border: "none",
-                    textAlign: "right", borderBottom: "1px solid #f3f4f6", cursor: "pointer",
-                    display: "flex", justifyContent: "space-between", fontSize: "0.875rem"
-                  }}
-                >
-                  <span>{p.nameAr || p.name}</span>
-                  <span style={{ color: "#49a35c", fontWeight: 600 }}>{formatCurrency(p.sellingPrice)}</span>
-                </button>
-              ))}
-          </div>
-        )}
-
-        {/* Big Action Squares */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", flex: 1, padding: "1rem 0" }}>
-          
-          {/* Box 1: Cash Payment (سعر الشراء فقط) */}
-          <button
-            onClick={() => {
-              if (cart.length > 0) {
-                setShowCashModal(true);
-              }
-            }}
-            disabled={cart.length === 0}
-            style={{
-              background: cart.length > 0 ? "linear-gradient(135deg, #49a35c, #2c6f3d)" : "#f3f4f6",
-              color: cart.length > 0 ? "white" : "#9ca3af",
-              borderRadius: "1.5rem", border: "none",
-              cursor: cart.length > 0 ? "pointer" : "not-allowed",
-              display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center", gap: "1rem",
-              boxShadow: cart.length > 0 ? "0 10px 25px rgba(73, 163, 92, 0.25)" : "none",
-              transition: "transform 0.2s, box-shadow 0.2s",
-            }}
-            className="pos-action-btn"
-          >
-            <Banknote size={56} style={{ opacity: cart.length > 0 ? 1 : 0.4 }} />
-            <span style={{ fontSize: "1.75rem", fontWeight: 700 }}>دفع نقداً</span>
-            {cart.length > 0 && (
-              <div style={{ background: "rgba(255,255,255,0.15)", padding: "0.5rem 1rem", borderRadius: "1rem", marginTop: "0.5rem" }}>
-                <span style={{ fontSize: "0.85rem", opacity: 0.9, display: "block" }}>سعر الشراء الإجمالي</span>
-                <span style={{ fontSize: "1.35rem", fontWeight: 800 }}>{formatCurrency(cashTotal)}</span>
-              </div>
-            )}
-          </button>
-
-          {/* Box 2: Credit Payment */}
-          <button
-            onClick={() => {
-              if (cart.length > 0) {
-                setShowCreditModal(true);
-              }
-            }}
-            disabled={cart.length === 0}
-            style={{
-              background: cart.length > 0 ? "linear-gradient(135deg, #eab308, #ca8a04)" : "#f3f4f6",
-              color: cart.length > 0 ? "white" : "#9ca3af",
-              borderRadius: "1.5rem", border: "none",
-              cursor: cart.length > 0 ? "pointer" : "not-allowed",
-              display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center", gap: "1rem",
-              boxShadow: cart.length > 0 ? "0 10px 25px rgba(234, 179, 8, 0.25)" : "none",
-              transition: "transform 0.2s, box-shadow 0.2s",
-            }}
-            className="pos-action-btn"
-          >
-            <CreditCard size={56} style={{ opacity: cart.length > 0 ? 1 : 0.4 }} />
-            <span style={{ fontSize: "1.75rem", fontWeight: 700 }}>كريدي</span>
-            {cart.length > 0 && (
-              <div style={{ background: "rgba(255,255,255,0.15)", padding: "0.5rem 1rem", borderRadius: "1rem", marginTop: "0.5rem" }}>
-                <span style={{ fontSize: "0.85rem", opacity: 0.9, display: "block" }}>سعر البيع الإجمالي</span>
-                <span style={{ fontSize: "1.35rem", fontWeight: 800 }}>{formatCurrency(creditTotal)}</span>
-              </div>
-            )}
-          </button>
-
-        </div>
-      </div>
-
-      {/* RIGHT AREA: Cart Detail */}
-      <div style={{
-        flex: "0 0 40%", display: "flex", flexDirection: "column",
-        background: "white", borderRadius: "1.25rem",
-        boxShadow: "0 8px 24px rgba(23,35,28,0.06)", overflow: "hidden",
-      }}>
-        <div style={{
-          padding: "1rem", borderBottom: "1px solid #f3f4f6",
-          display: "flex", alignItems: "center", gap: "0.5rem",
-        }}>
-          <ShoppingCart size={20} color="#49a35c" />
-          <span style={{ fontWeight: 600, color: "#17231c" }}>قائمة المبيعات السريعة</span>
-          {cart.length > 0 && <span className="badge-green">{cart.length}</span>}
-          {cart.length > 0 && (
+      {/* Top: Search bar + mode tabs */}
+      <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+        {/* Mode tabs */}
+        <div style={{ display: "flex", borderRadius: "0.625rem", overflow: "hidden", border: "1px solid #e5e7eb", flexShrink: 0 }}>
+          {(["cash", "credit"] as const).map(m => (
             <button
-              onClick={() => setCart([])}
-              style={{ marginRight: "auto", background: "none", border: "none", cursor: "pointer", color: "#dc2626", fontSize: "0.78rem" }}
+              key={m}
+              onClick={() => setMode(m)}
+              style={{
+                padding: "0.6rem 1.1rem", border: "none", cursor: "pointer",
+                fontWeight: mode === m ? 700 : 400, fontSize: "0.85rem",
+                background: mode === m
+                  ? m === "cash" ? "#26683a" : "#ca8a04"
+                  : "white",
+                color: mode === m ? "white" : "#6b7280",
+                transition: "all 0.15s",
+              }}
             >
-              إلغاء السلة
+              {m === "cash" ? "💵 بيع نقدي" : "📋 بيع كريدي"}
+            </button>
+          ))}
+        </div>
+
+        {/* Search */}
+        <div style={{ position: "relative", flex: 1 }}>
+          <Search size={17} style={{
+            position: "absolute", right: "0.75rem", top: "50%",
+            transform: "translateY(-50%)", color: "#9ca3af", pointerEvents: "none"
+          }} />
+          <input
+            ref={searchRef}
+            className="input-field"
+            style={{ paddingRight: "2.25rem", paddingLeft: "0.875rem" }}
+            placeholder="ابحث بالاسم أو الباركود، أو امسح مباشرة..."
+            value={search}
+            autoComplete="off"
+            onChange={e => { setSearch(e.target.value); setShowDropdown(true); }}
+            onFocus={() => setShowDropdown(true)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && suggestions.length > 0) {
+                cart.addProduct(suggestions[0]);
+                setSearch(""); setShowDropdown(false);
+              }
+              if (e.key === "Escape") { setSearch(""); setShowDropdown(false); }
+            }}
+          />
+          {search && (
+            <button onClick={() => { setSearch(""); setShowDropdown(false); }}
+              style={{ position: "absolute", left: "0.5rem", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#9ca3af" }}>
+              <X size={15} />
             </button>
           )}
-        </div>
-
-        {/* Cart items */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem" }}>
-          {cart.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "4rem 2rem", color: "#9ca3af" }}>
-              <ShoppingCart size={48} style={{ margin: "0 auto 1rem", opacity: 0.15 }} />
-              <p style={{ fontSize: "0.9rem", fontWeight: 500 }}>السلة فارغة حالياً</p>
-              <p style={{ fontSize: "0.78rem", marginTop: "0.25rem", color: "#cbd5e1" }}>يرجى مسح باركود المنتج أو كتابة اسمه أعلاه</p>
-            </div>
-          ) : (
-            cart.map((item) => (
-              <div key={item.productId} style={{
-                display: "flex", alignItems: "center", gap: "0.5rem",
-                padding: "0.625rem 0", borderBottom: "1px solid #f3f4f6",
-              }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#17231c", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {item.productName}
+          {/* Dropdown suggestions */}
+          {showDropdown && suggestions.length > 0 && (
+            <div style={{
+              position: "absolute", top: "100%", right: 0, left: 0, zIndex: 50,
+              background: "white", border: "1px solid #e5e7eb", borderRadius: "0.625rem",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.1)", marginTop: "4px", maxHeight: "220px", overflowY: "auto"
+            }}>
+              {suggestions.map(p => (
+                <button key={p.id} onMouseDown={() => { cart.addProduct(p); setSearch(""); setShowDropdown(false); }}
+                  style={{
+                    width: "100%", padding: "0.6rem 0.875rem", background: "none", border: "none",
+                    textAlign: "right", cursor: "pointer", display: "flex", justifyContent: "space-between",
+                    alignItems: "center", borderBottom: "1px solid #f3f4f6", fontSize: "0.875rem",
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "#f8fdf5")}
+                  onMouseLeave={e => (e.currentTarget.style.background = "")}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600, color: "#17231c" }}>{p.nameAr || p.name}</div>
+                    {p.barcode && <div style={{ fontSize: "0.7rem", color: "#9ca3af", fontFamily: "monospace" }}>{p.barcode}</div>}
                   </div>
-                  <div style={{ fontSize: "0.72rem", color: "#6b7280", display: "flex", gap: "0.5rem" }}>
-                    <span>البيع: {formatCurrency(item.sellingPrice)}</span>
-                    <span style={{ color: "#49a35c" }}>الشراء: {formatCurrency(item.purchasePrice)}</span>
+                  <div style={{ textAlign: "left" }}>
+                    <div style={{ fontWeight: 700, color: "#26683a" }}>{p.sellingPrice} د.ج</div>
+                    <div style={{ fontSize: "0.7rem", color: p.stock <= p.minStock ? "#dc2626" : "#9ca3af" }}>{p.stock} {p.unit}</div>
                   </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                  <button
-                    onClick={() => updateQty(item.productId, -1)}
-                    style={{ width: "24px", height: "24px", borderRadius: "50%", border: "1px solid #e5e7eb", background: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-                  >
-                    <Minus size={12} />
-                  </button>
-                  <span style={{ fontSize: "0.875rem", fontWeight: 600, minWidth: "24px", textAlign: "center" }}>
-                    {item.quantity}
-                  </span>
-                  <button
-                    onClick={() => updateQty(item.productId, 1)}
-                    style={{ width: "24px", height: "24px", borderRadius: "50%", border: "1px solid #49a35c", background: "#f1f8ee", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#49a35c" }}
-                  >
-                    <Plus size={12} />
-                  </button>
-                </div>
-                <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#26683a", minWidth: "75px", textAlign: "left" }}>
-                  {formatCurrency(item.sellingPrice * item.quantity)}
-                </div>
-                <button onClick={() => removeItem(item.productId)} style={{ background: "none", border: "none", cursor: "pointer", color: "#dc2626", padding: "0.25rem" }}>
-                  <Trash2 size={14} />
                 </button>
-              </div>
-            ))
+              ))}
+            </div>
           )}
         </div>
 
-        {/* Discount handler */}
-        {cart.length > 0 && (
-          <div style={{ padding: "0.75rem", borderTop: "1px solid #f3f4f6", background: "#f9fafb" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <span style={{ fontSize: "0.8rem", color: "#4b5563", fontWeight: 600 }}>إدخال خصم (د.ج):</span>
-              <input
-                type="number"
-                min="0"
-                value={discount || ""}
-                onChange={(e) => setDiscount(Number(e.target.value))}
-                placeholder="0"
-                style={{
-                  flex: 1, border: "1px solid #e5e7eb", borderRadius: "0.375rem",
-                  padding: "0.25rem 0.5rem", fontSize: "0.8rem", direction: "ltr", textAlign: "left",
-                  background: "white"
-                }}
-              />
-            </div>
-          </div>
+        {/* Camera + USB */}
+        <button onClick={() => setShowCamera(true)}
+          style={{ padding: "0.6rem 0.875rem", borderRadius: "0.5rem", border: "1px solid #c5e5b8", background: "#f1f8ee", color: "#26683a", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.82rem", fontWeight: 500, whiteSpace: "nowrap" }}>
+          <Camera size={17} /> كاميرا
+        </button>
+        <button onClick={() => searchRef.current?.focus()}
+          style={{ padding: "0.6rem 0.875rem", borderRadius: "0.5rem", border: "1px solid #e5e7eb", background: "#f9fafb", color: "#6b7280", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.82rem", whiteSpace: "nowrap" }}>
+          <ScanLine size={17} /> USB
+        </button>
+        {cart.lines.length > 0 && (
+          <button onClick={cart.clearCart}
+            style={{ padding: "0.6rem 0.875rem", borderRadius: "0.5rem", border: "1px solid #fca5a5", background: "#fef2f2", color: "#dc2626", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.82rem", whiteSpace: "nowrap" }}>
+            <Trash2 size={15} /> مسح الكل
+          </button>
         )}
       </div>
 
-      {/* Cash Sale Modal (سعر الشراء) */}
-      {showCashModal && (
-        <div className="modal-overlay" onClick={() => setShowCashModal(false)}>
-          <div className="card animate-slide-up" style={{ width: "100%", maxWidth: "420px" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
-              <h2 style={{ fontWeight: 700, color: "#26683a" }}>تأكيد الدفع نقداً (سعر الشراء)</h2>
-              <button onClick={() => setShowCashModal(false)} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={20} /></button>
-            </div>
-
-            <div style={{ background: "#f0fdf4", borderRadius: "0.75rem", padding: "1rem", marginBottom: "1.25rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-                <span style={{ color: "#4b5563" }}>عدد المواد</span>
-                <span style={{ fontWeight: 700 }}>{cart.reduce((sum, i) => sum + i.quantity, 0)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-                <span style={{ color: "#4b5563" }}>سعر الشراء الأصلي</span>
-                <span>{formatCurrency(cashSubtotal)}</span>
-              </div>
-              {discount > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-                  <span style={{ color: "#dc2626" }}>الخصم المطبق</span>
-                  <span style={{ color: "#dc2626", fontWeight: 600 }}>-{formatCurrency(discount)}</span>
-                </div>
-              )}
-              <div style={{ borderTop: "1px dashed #cbd5e1", marginTop: "0.75rem", paddingTop: "0.75rem", display: "flex", justifyContent: "space-between" }}>
-                <span style={{ fontWeight: 800, fontSize: "1.05rem" }}>المبلغ المطلوب (نقداً)</span>
-                <span style={{ fontWeight: 800, fontSize: "1.35rem", color: "#166534" }}>{formatCurrency(cashTotal)}</span>
-              </div>
-            </div>
-
-            <div style={{ marginBottom: "1.25rem" }}>
-              <label className="label">ملاحظات الفاتورة</label>
-              <input
-                className="input-field"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="مثال: بيع بسعر الشراء للأقارب..."
-              />
-            </div>
-
-            <div style={{ display: "flex", gap: "0.75rem" }}>
-              <button onClick={() => setShowCashModal(false)} className="btn-secondary" style={{ flex: 1, justifyContent: "center" }}>إلغاء</button>
-              <button
-                onClick={handleCashSale}
-                disabled={loading}
-                className="btn-primary"
-                style={{ flex: 2, justifyContent: "center" }}
-              >
-                <Printer size={16} /> {loading ? "تسجيل..." : "تأكيد وطباعة الفاتورة"}
-              </button>
-            </div>
-          </div>
+      {/* Credit customer bar (when credit mode) */}
+      {mode === "credit" && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: "0.75rem",
+          padding: "0.625rem 1rem", background: "#fef9c3",
+          borderRadius: "0.625rem", border: "1px solid #fde68a",
+        }}>
+          <UserCheck size={18} color="#92400e" />
+          <span style={{ fontSize: "0.85rem", color: "#78350f", fontWeight: 500 }}>
+            {selectedCustomer ? `العميل: ${selectedCustomer.name} — دين حالي: ${selectedCustomer.totalDebt} د.ج` : "لم يتم اختيار عميل بعد"}
+          </span>
+          <button onClick={() => setShowCreditPanel(true)}
+            style={{ marginRight: "auto", padding: "0.35rem 0.75rem", borderRadius: "0.375rem", border: "1px solid #fbbf24", background: "white", color: "#92400e", cursor: "pointer", fontSize: "0.8rem", fontWeight: 600 }}>
+            {selectedCustomer ? "تغيير العميل" : "اختر عميل"}
+          </button>
         </div>
       )}
 
-      {/* Credit Sale Modal (كريدي - تظهر حسابات الناس) */}
-      {showCreditModal && (
-        <div className="modal-overlay" onClick={() => setShowCreditModal(false)}>
-          <div className="card animate-slide-up" style={{ width: "100%", maxWidth: "460px", maxHeight: "90vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-              <h2 style={{ fontWeight: 700, color: "#854d0e" }}>البيع بالكريدي للعملاء</h2>
-              <button onClick={() => setShowCreditModal(false)} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={20} /></button>
-            </div>
+      {/* Main area: table + summary */}
+      <div style={{ display: "flex", gap: "0.75rem", flex: 1, overflow: "hidden" }}>
 
-            <div style={{ background: "#fef9c3", borderRadius: "0.75rem", padding: "0.875rem", marginBottom: "1rem", fontSize: "0.9rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 700 }}>
-                <span>مبلغ الكريدي الإجمالي (سعر البيع):</span>
-                <span style={{ color: "#854d0e", fontSize: "1.1rem" }}>{formatCurrency(creditTotal)}</span>
-              </div>
-            </div>
+        {/* Left: table */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.5rem", overflow: "hidden" }}>
 
-            {/* Customer Search inside credit dialog */}
-            <div style={{ marginBottom: "0.75rem" }}>
-              <label className="label">ابحث عن حساب العميل:</label>
-              <input
-                className="input-field"
-                placeholder="اكتب اسم العميل لتصفيته..."
-                value={customerSearch}
-                onChange={(e) => setCustomerSearch(e.target.value)}
-              />
-            </div>
-
-            {/* Customer List Select */}
-            <div style={{
-              border: "1px solid #e5e7eb", borderRadius: "0.75rem",
-              maxHeight: "220px", overflowY: "auto", marginBottom: "1rem"
-            }}>
-              {filteredCustomers.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "1.5rem", color: "#9ca3af", fontSize: "0.85rem" }}>
-                  لا يوجد عميل بهذا الاسم
-                </div>
-              ) : (
-                filteredCustomers.map((c) => {
-                  const isSelected = selectedCustomer === c.id;
-                  return (
-                    <button
-                      key={c.id}
-                      onClick={() => setSelectedCustomer(c.id)}
-                      style={{
-                        width: "100%", padding: "0.75rem 1rem", border: "none",
-                        background: isSelected ? "#fef9c3" : "none",
-                        borderBottom: "1px solid #f3f4f6", cursor: "pointer",
-                        display: "flex", justifyContent: "space-between", alignItems: "center",
-                        textAlign: "right", transition: "background 0.1s"
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 600, color: "#17231c", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                          {isSelected && <UserCheck size={16} color="#ca8a04" />}
-                          {c.name}
-                        </div>
-                        <div style={{ fontSize: "0.72rem", color: "#6b7280" }}>هاتف: {c.phone || "—"}</div>
-                      </div>
-                      <div style={{ textAlign: "left" }}>
-                        <div style={{ fontWeight: 700, fontSize: "0.85rem", color: c.totalDebt > 0 ? "#dc2626" : "#4b5563" }}>
-                          الدين الحالي: {formatCurrency(c.totalDebt)}
-                        </div>
-                        <div style={{ fontSize: "0.68rem", color: "#9ca3af" }}>الحد: {formatCurrency(c.creditLimit)}</div>
-                      </div>
-                    </button>
-                  );
-                })
+          {/* Products table */}
+          <div style={{
+            flex: 1, background: "white", borderRadius: "1rem",
+            boxShadow: "0 4px 16px rgba(23,35,28,0.06)",
+            display: "flex", flexDirection: "column", overflow: "hidden",
+          }}>
+            <div style={{ padding: "0.875rem 1rem", borderBottom: "1px solid #f3f4f6", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span style={{ fontWeight: 700, color: "#17231c" }}>الفاتورة</span>
+              {cart.lines.length > 0 && (
+                <span className="badge-green">{cart.lines.length} صنف</span>
               )}
+              <span style={{ marginRight: "auto", fontSize: "0.72rem", color: "#9ca3af", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                اضغط <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: "0.7rem", fontFamily: "monospace" }}>F1</kbd> لفتح نافذة بيع جديدة
+              </span>
             </div>
+            <PosTable
+              lines={cart.lines}
+              mode={mode}
+              onQty={cart.updateQty}
+              onRemove={cart.removeLine}
+            />
+          </div>
+        </div>
 
-            <div style={{ marginBottom: "1.25rem" }}>
-              <label className="label">ملاحظات</label>
-              <input
-                className="input-field"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="ملاحظات اختيارية..."
-              />
+        {/* Summary panel */}
+        <PosSummary
+          mode={mode}
+          subtotal={mode === "cash" ? cart.buySubtotal : cart.sellSubtotal}
+          total={mode === "cash" ? cart.buyTotal : cart.sellTotal}
+          discount={cart.effectiveDiscount}
+          discountValue={cart.discountValue}
+          discountPct={cart.discountPct}
+          itemCount={cart.itemCount}
+          onDiscountValue={cart.setDiscountValue}
+          onDiscountPct={cart.setDiscountPct}
+          onClear={cart.clearCart}
+          onConfirm={handleConfirm}
+          loading={loading}
+          disabled={cart.lines.length === 0}
+        />
+      </div>
+
+      {/* Credit Customer Selection Panel */}
+      {showCreditPanel && (
+        <div className="modal-overlay" onClick={() => setShowCreditPanel(false)}>
+          <div className="card animate-slide-up" style={{ width: "100%", maxWidth: "440px", maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1rem" }}>
+              <h2 style={{ fontWeight: 700 }}>اختيار العميل للكريدي</h2>
+              <button onClick={() => setShowCreditPanel(false)} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={20} /></button>
             </div>
-
-            <div style={{ display: "flex", gap: "0.75rem" }}>
-              <button onClick={() => setShowCreditModal(false)} className="btn-secondary" style={{ flex: 1, justifyContent: "center" }}>إلغاء</button>
-              <button
-                onClick={handleCreditSale}
-                disabled={loading || !selectedCustomer}
-                className="btn-primary"
-                style={{
-                  flex: 2, justifyContent: "center",
-                  background: selectedCustomer ? "#ca8a04" : "#e5e7eb",
-                  borderColor: selectedCustomer ? "#ca8a04" : "#e5e7eb"
-                }}
-              >
-                <Printer size={16} /> {loading ? "تسجيل..." : "تأكيد وطباعة الكريدي"}
-              </button>
+            <input
+              className="input-field"
+              placeholder="ابحث باسم العميل أو هاتفه..."
+              value={custSearch}
+              onChange={e => setCustSearch(e.target.value)}
+              style={{ marginBottom: "0.75rem" }}
+              autoFocus
+            />
+            <div style={{ flex: 1, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: "0.625rem" }}>
+              {filteredCustomers.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "2rem", color: "#9ca3af" }}>لا يوجد عميل مطابق</div>
+              ) : filteredCustomers.map(c => {
+                const sel = selectedCustomer?.id === c.id;
+                return (
+                  <button key={c.id} onClick={() => { setSelectedCustomer({ id: c.id, name: c.name, totalDebt: c.totalDebt, creditLimit: c.creditLimit }); setShowCreditPanel(false); setCustSearch(""); }}
+                    style={{
+                      width: "100%", padding: "0.75rem 1rem", background: sel ? "#fef9c3" : "none",
+                      border: "none", borderBottom: "1px solid #f3f4f6", cursor: "pointer",
+                      display: "flex", justifyContent: "space-between", textAlign: "right",
+                    }}>
+                    <div>
+                      <div style={{ fontWeight: 600, color: "#17231c", display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                        {sel && <UserCheck size={15} color="#ca8a04" />} {c.name}
+                      </div>
+                      <div style={{ fontSize: "0.72rem", color: "#6b7280" }}>📞 {c.phone || "—"}</div>
+                    </div>
+                    <div style={{ textAlign: "left" }}>
+                      <div style={{ fontWeight: 700, color: c.totalDebt > 0 ? "#dc2626" : "#26683a", fontSize: "0.85rem" }}>
+                        {c.totalDebt} د.ج
+                      </div>
+                      <div style={{ fontSize: "0.68rem", color: "#9ca3af" }}>حد: {c.creditLimit} د.ج</div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

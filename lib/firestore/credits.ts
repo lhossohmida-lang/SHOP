@@ -10,6 +10,7 @@ import {
   Timestamp,
   where,
   getDocs,
+  deleteDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { CreditCustomer, CreditTransaction } from "@/types/credit";
@@ -24,6 +25,7 @@ function toCustomer(id: string, data: Record<string, unknown>): CreditCustomer {
     creditLimit: (data.creditLimit as number) || 50000,
     isActive: data.isActive !== false,
     storeId: (data.storeId as string) || "",
+    dueDate: data.dueDate as string | undefined,
     lastTransactionAt:
       data.lastTransactionAt instanceof Timestamp
         ? data.lastTransactionAt.toDate()
@@ -85,6 +87,13 @@ export async function updateCreditCustomer(
   await updateDoc(doc(creditCustomersCol(storeId), customerId), data);
 }
 
+export async function deleteCreditCustomer(
+  storeId: string,
+  customerId: string
+): Promise<void> {
+  await deleteDoc(doc(creditCustomersCol(storeId), customerId));
+}
+
 export function subscribeCreditCustomers(
   storeId: string,
   callback: (customers: CreditCustomer[]) => void
@@ -97,12 +106,12 @@ export function subscribeCreditCustomers(
 
 export async function addCreditTransaction(
   storeId: string,
-  data: Omit<CreditTransaction, "id" | "createdAt" | "storeId">
+  data: Omit<CreditTransaction, "id" | "createdAt" | "storeId"> & { createdAt?: Date }
 ): Promise<string> {
   const ref = await addDoc(creditTransactionsCol(storeId), {
     ...data,
     storeId,
-    createdAt: serverTimestamp(),
+    createdAt: data.createdAt || serverTimestamp(),
   });
   return ref.id;
 }

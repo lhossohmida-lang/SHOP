@@ -7,6 +7,7 @@ import { formatCurrency } from "@/lib/utils/currency";
 import { formatDateTime } from "@/lib/utils/date";
 import { TrendingUp, Users, AlertTriangle, Package } from "lucide-react";
 import Link from "next/link";
+import PasswordGate from "@/components/layout/PasswordGate";
 
 export default function DashboardPage() {
   const { appUser } = useAuth();
@@ -46,7 +47,8 @@ export default function DashboardPage() {
   const maxVal = Math.max(...last7.map(d => d.total), 1);
 
   return (
-    <div className="animate-fade-in" style={{ maxWidth: "1400px", margin: "0 auto" }}>
+    <PasswordGate>
+      <div className="animate-fade-in" style={{ maxWidth: "1400px", margin: "0 auto" }}>
       <div style={{ marginBottom: "1.5rem" }}>
         <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#17231c" }}>لوحة التحكم</h1>
         <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>مرحباً، {appUser?.displayName}</p>
@@ -120,14 +122,17 @@ export default function DashboardPage() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {sales.slice(0, 6).map(s => (
-              <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem", borderRadius: "0.5rem", background: "#f8fdf5" }}>
-                <div>
-                  <div style={{ fontSize: "0.78rem", fontWeight: 500 }}>{s.receiptNumber}</div>
-                  <div style={{ fontSize: "0.68rem", color: "#6b7280" }}>{formatDateTime(s.createdAt)}</div>
+              <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.75rem", borderRadius: "0.5rem", background: "#f8fdf5", border: "1px solid #eefae7" }}>
+                <div style={{ flex: 1, minWidth: 0, paddingRight: "0.5rem" }}>
+                  <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#17231c" }}>{s.receiptNumber}</div>
+                  <div style={{ fontSize: "0.68rem", color: "#6b7280", marginTop: "1px" }}>{formatDateTime(s.createdAt)}</div>
+                  <div style={{ fontSize: "0.72rem", color: "#4b5563", marginTop: "0.25rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={s.items.map(item => `${item.productName} × ${item.quantity}`).join("، ")}>
+                    {s.items.map(item => `${item.productName} × ${item.quantity}`).join("، ")}
+                  </div>
                 </div>
-                <div style={{ textAlign: "left" }}>
+                <div style={{ textAlign: "left", flexShrink: 0 }}>
                   <div style={{ fontWeight: 700, color: "#26683a", fontSize: "0.85rem" }}>{formatCurrency(s.total)}</div>
-                  <span className={s.paymentMethod === "credit" ? "badge-red" : "badge-green"} style={{ fontSize: "0.65rem" }}>
+                  <span className={s.paymentMethod === "credit" ? "badge-red" : "badge-green"} style={{ fontSize: "0.65rem", marginTop: "2px", display: "inline-block" }}>
                     {s.paymentMethod === "cash" ? "نقداً" : s.paymentMethod === "card" ? "بطاقة" : "آجل"}
                   </span>
                 </div>
@@ -162,5 +167,6 @@ export default function DashboardPage() {
         </div>
       </div>
     </div>
+    </PasswordGate>
   );
 }

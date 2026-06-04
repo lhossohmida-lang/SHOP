@@ -9,6 +9,7 @@ export interface CreditCustomer {
   creditLimit: number;
   isActive: boolean;
   storeId: string;
+  dueDate?: string;
   lastTransactionAt: Date;
   createdAt: Date;
 }

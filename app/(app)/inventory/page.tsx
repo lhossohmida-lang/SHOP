@@ -1,10 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { updateProduct } from "@/lib/firestore/products";
+import { getPosShortcuts, savePosShortcuts } from "@/lib/firestore/shortcuts";
 import { formatCurrency } from "@/lib/utils/currency";
-import { Search, AlertTriangle, Filter, Edit2 } from "lucide-react";
+import { Search, AlertTriangle, Edit2, Zap, X, Check } from "lucide-react";
 import type { Product } from "@/types/product";
 
 export default function InventoryPage() {
@@ -16,6 +17,13 @@ export default function InventoryPage() {
   const [stockFilter, setStockFilter] = useState("الكل");
   const [editingStock, setEditingStock] = useState<string | null>(null);
   const [newStock, setNewStock] = useState<number>(0);
+
+  // Shortcuts modal
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [slots, setSlots] = useState<(string | null)[]>(Array(9).fill(null));
+  const [savingShortcuts, setSavingShortcuts] = useState(false);
+  const [shortcutSearch, setShortcutSearch] = useState("");
+  const [activeSlot, setActiveSlot] = useState<number | null>(null);
 
   const categories = ["الكل", ...Array.from(new Set(products.map(p => p.category)))];
 
@@ -36,11 +44,77 @@ export default function InventoryPage() {
     setEditingStock(null);
   };
 
+  // Load shortcuts
+  useEffect(() => {
+    if (!storeId) return;
+    getPosShortcuts(storeId).then(d => setSlots(d.slots));
+  }, [storeId]);
+
+  const openShortcuts = () => { setShowShortcuts(true); setActiveSlot(null); setShortcutSearch(""); };
+
+  const handleSlotClick = (idx: number) => {
+    setActiveSlot(activeSlot === idx ? null : idx);
+    setShortcutSearch("");
+  };
+
+  const assignProductToSlot = (productId: string) => {
+    if (activeSlot === null) return;
+    const next = [...slots];
+    next[activeSlot] = productId;
+    setSlots(next);
+    setActiveSlot(null);
+    setShortcutSearch("");
+  };
+
+  const clearSlot = (idx: number) => {
+    const next = [...slots];
+    next[idx] = null;
+    setSlots(next);
+    if (activeSlot === idx) setActiveSlot(null);
+  };
+
+  const handleSaveShortcuts = async () => {
+    if (!storeId) return;
+    setSavingShortcuts(true);
+    try {
+      await savePosShortcuts(storeId, slots);
+      setShowShortcuts(false);
+    } catch (e) {
+      console.error(e);
+      alert("حدث خطأ أثناء حفظ الاختصارات: " + e);
+    } finally {
+      setSavingShortcuts(false);
+    }
+  };
+
+  const shortcutFilteredProducts = products.filter(p => {
+    if (!shortcutSearch.trim()) return true;
+    return p.nameAr.includes(shortcutSearch) || p.name.toLowerCase().includes(shortcutSearch.toLowerCase());
+  }).slice(0, 30);
+
   return (
     <div className="animate-fade-in">
-      <div style={{ marginBottom: "1.5rem" }}>
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#17231c" }}>إدارة المخزون</h1>
-        <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>مراقبة وتحديث مستويات المخزون</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+        <div>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#17231c" }}>إدارة المخزون</h1>
+          <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>مراقبة وتحديث مستويات المخزون</p>
+        </div>
+        <button
+          onClick={openShortcuts}
+          style={{
+            display: "flex", alignItems: "center", gap: "0.5rem",
+            padding: "0.6rem 1.1rem", borderRadius: "0.625rem",
+            background: "linear-gradient(135deg, #f59e0b, #d97706)",
+            color: "white", border: "none", cursor: "pointer",
+            fontWeight: 700, fontSize: "0.875rem",
+            boxShadow: "0 2px 8px rgba(245,158,11,0.3)",
+            transition: "all 0.15s",
+          }}
+          onMouseEnter={e => (e.currentTarget.style.transform = "translateY(-1px)")}
+          onMouseLeave={e => (e.currentTarget.style.transform = "")}
+        >
+          <Zap size={17} /> ⚡ الاختصارات
+        </button>
       </div>
 
       {/* Stats */}
@@ -123,6 +197,158 @@ export default function InventoryPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Shortcuts Modal */}
+      {showShortcuts && (
+        <div className="modal-overlay" onClick={() => setShowShortcuts(false)}>
+          <div
+            className="card animate-slide-up"
+            style={{ width: "100%", maxWidth: "680px", maxHeight: "90vh", overflowY: "auto" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+              <div>
+                <h2 style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <Zap size={20} color="#f59e0b" /> الاختصارات السريعة (3×3)
+                </h2>
+                <p style={{ fontSize: "0.8rem", color: "#6b7280", marginTop: "0.25rem" }}>
+                  اضغط على خانة لتحديد المنتج المرتبط بها. ستظهر الاختصارات في نقطة البيع.
+                </p>
+              </div>
+              <button onClick={() => setShowShortcuts(false)} style={{ background: "none", border: "none", cursor: "pointer" }}>
+                <X size={22} />
+              </button>
+            </div>
+
+            {/* 3x3 Grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem", marginBottom: "1.5rem" }}>
+              {slots.map((id, idx) => {
+                const product = id ? products.find(p => p.id === id) : null;
+                const isActive = activeSlot === idx;
+                return (
+                  <div key={idx} style={{ position: "relative" }}>
+                    <button
+                      onClick={() => handleSlotClick(idx)}
+                      style={{
+                        width: "100%",
+                        padding: "1rem 0.75rem",
+                        borderRadius: "0.75rem",
+                        border: isActive
+                          ? "2px solid #f59e0b"
+                          : product
+                          ? "2px solid #c5e5b8"
+                          : "2px dashed #d1d5db",
+                        background: isActive ? "#fffbeb" : product ? "#f1f8ee" : "#fafafa",
+                        cursor: "pointer",
+                        textAlign: "center",
+                        transition: "all 0.15s",
+                        minHeight: "80px",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "0.25rem",
+                      }}
+                    >
+                      {product ? (
+                        <>
+                          <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "#17231c" }}>
+                            {product.nameAr || product.name}
+                          </div>
+                          <div style={{ fontSize: "0.72rem", color: "#26683a" }}>
+                            {formatCurrency(product.purchasePrice)}
+                          </div>
+                          <div style={{ fontSize: "0.68rem", color: product.stock === 0 ? "#dc2626" : "#9ca3af" }}>
+                            مخزون: {product.stock} {product.unit}
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ fontSize: "0.8rem", color: "#9ca3af" }}>
+                          {isActive ? "🔍 اختر منتجاً..." : "فارغ"}
+                        </div>
+                      )}
+                    </button>
+                    {product && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); clearSlot(idx); }}
+                        style={{
+                          position: "absolute", top: "4px", left: "4px",
+                          background: "#dc2626", border: "none", borderRadius: "50%",
+                          width: "20px", height: "20px", cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center", color: "white",
+                          fontSize: "0.65rem",
+                        }}
+                        title="مسح الخانة"
+                      >
+                        <X size={11} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Product picker (appears when a slot is selected) */}
+            {activeSlot !== null && (
+              <div style={{ border: "1px solid #fde68a", borderRadius: "0.75rem", padding: "1rem", background: "#fffbeb", marginBottom: "1rem" }}>
+                <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "#92400e", marginBottom: "0.625rem" }}>
+                  اختر منتجاً للخانة رقم {activeSlot + 1}
+                </div>
+                <div style={{ position: "relative", marginBottom: "0.75rem" }}>
+                  <Search size={15} style={{ position: "absolute", right: "0.75rem", top: "50%", transform: "translateY(-50%)", color: "#9ca3af" }} />
+                  <input
+                    className="input-field"
+                    style={{ paddingRight: "2.25rem" }}
+                    placeholder="ابحث عن منتج..."
+                    value={shortcutSearch}
+                    onChange={e => setShortcutSearch(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", maxHeight: "180px", overflowY: "auto" }}>
+                  {shortcutFilteredProducts.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => assignProductToSlot(p.id)}
+                      style={{
+                        padding: "0.35rem 0.75rem",
+                        borderRadius: "0.5rem",
+                        border: slots[activeSlot] === p.id ? "2px solid #f59e0b" : "1px solid #c5e5b8",
+                        background: slots[activeSlot] === p.id ? "#fef9c3" : "#f1f8ee",
+                        cursor: "pointer",
+                        fontSize: "0.78rem",
+                        fontWeight: 600,
+                        color: "#17231c",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.35rem",
+                      }}
+                    >
+                      {slots[activeSlot] === p.id && <Check size={12} color="#f59e0b" />}
+                      {p.nameAr || p.name}
+                      <span style={{ color: "#6b7280", fontWeight: 400 }}>({formatCurrency(p.purchasePrice)})</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
+              <button onClick={() => setShowShortcuts(false)} className="btn-secondary">إلغاء</button>
+              <button
+                onClick={handleSaveShortcuts}
+                disabled={savingShortcuts}
+                className="btn-primary"
+                style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+              >
+                <Check size={16} />
+                {savingShortcuts ? "جارٍ الحفظ..." : "حفظ الاختصارات"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

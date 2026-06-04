@@ -9,6 +9,10 @@ import {
   where,
   getDocs,
   limit,
+  doc,
+  deleteDoc,
+  getDoc,
+  updateDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { Sale } from "@/types/sale";
@@ -87,3 +91,48 @@ export async function getSalesByDateRange(
   const snap = await getDocs(q);
   return snap.docs.map((d) => toSale(d.id, d.data()));
 }
+
+export async function deleteSaleAndRestoreStock(storeId: string, sale: Sale): Promise<void> {
+  // 1. Restore product stocks
+  for (const item of sale.items) {
+    if (item.productId) {
+      const prodRef = doc(db, "stores", storeId, "products", item.productId);
+      const prodSnap = await getDoc(prodRef);
+      if (prodSnap.exists()) {
+        const currentStock = (prodSnap.data().stock as number) || 0;
+        await updateDoc(prodRef, {
+          stock: currentStock + item.quantity,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
+  }
+
+  // 2. Adjust credit customer debt if paid by credit
+  if (sale.paymentMethod === "credit" && sale.customerId) {
+    const custRef = doc(db, "stores", storeId, "creditCustomers", sale.customerId);
+    const custSnap = await getDoc(custRef);
+    if (custSnap.exists()) {
+      const currentDebt = (custSnap.data().totalDebt as number) || 0;
+      await updateDoc(custRef, {
+        totalDebt: Math.max(0, currentDebt - sale.total),
+        lastTransactionAt: serverTimestamp(),
+      });
+    }
+
+    // 3. Delete corresponding credit transactions
+    const txQuery = query(
+      collection(db, "stores", storeId, "creditTransactions"),
+      where("saleId", "==", sale.id)
+    );
+    const txSnap = await getDocs(txQuery);
+    for (const d of txSnap.docs) {
+      await deleteDoc(d.ref);
+    }
+  }
+
+  // 4. Delete the sale itself
+  const saleRef = doc(db, "stores", storeId, "sales", sale.id);
+  await deleteDoc(saleRef);
+}
+

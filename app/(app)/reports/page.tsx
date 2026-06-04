@@ -1,11 +1,12 @@
 "use client";
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { getSalesByDateRange } from "@/lib/firestore/sales";
+import { getSalesByDateRange, deleteSaleAndRestoreStock } from "@/lib/firestore/sales";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDateTime } from "@/lib/utils/date";
-import { BarChart3, Download, Search } from "lucide-react";
+import { BarChart3, Download, Search, Trash2 } from "lucide-react";
 import type { Sale } from "@/types/sale";
+import PasswordGate from "@/components/layout/PasswordGate";
 
 export default function ReportsPage() {
   const { appUser } = useAuth();
@@ -32,6 +33,20 @@ export default function ReportsPage() {
     finally { setLoading(false); }
   };
 
+  const handleDeleteSale = async (sale: Sale) => {
+    const confirmDelete = window.confirm(`هل أنت متأكد من إلغاء الفاتورة رقم ${sale.receiptNumber} وإرجاع منتجاتها إلى المخزون؟`);
+    if (!confirmDelete) return;
+
+    try {
+      await deleteSaleAndRestoreStock(storeId!, sale);
+      setSales(prev => prev.filter(s => s.id !== sale.id));
+      alert("تم إلغاء الفاتورة وإرجاع الكميات للمخزون بنجاح.");
+    } catch (e) {
+      console.error(e);
+      alert("حدث خطأ أثناء الحذف: " + e);
+    }
+  };
+
   const filtered = sales.filter(s => payFilter === "الكل" || s.paymentMethod === payFilter);
   const totalAmount = filtered.reduce((s, sale) => s + sale.total, 0);
   const cashTotal = filtered.filter(s => s.paymentMethod === "cash").reduce((s, sale) => s + sale.total, 0);
@@ -51,7 +66,8 @@ export default function ReportsPage() {
   };
 
   return (
-    <div className="animate-fade-in">
+    <PasswordGate>
+      <div className="animate-fade-in">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
         <div>
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#17231c" }}>التقارير</h1>
@@ -109,11 +125,20 @@ export default function ReportsPage() {
         <div className="table-container">
           <table>
             <thead>
-              <tr><th>رقم الوصل</th><th>التاريخ</th><th>الكاشير</th><th>الأصناف</th><th>الخصم</th><th>الإجمالي</th><th>طريقة الدفع</th></tr>
+              <tr>
+                <th>رقم الوصل</th>
+                <th>التاريخ</th>
+                <th>الكاشير</th>
+                <th>الأصناف والتفاصيل</th>
+                <th>الخصم</th>
+                <th>الإجمالي</th>
+                <th>طريقة الدفع</th>
+                <th style={{ textAlign: "center" }}>إلغاء المبيعة</th>
+              </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={7} style={{ textAlign: "center", padding: "2rem", color: "#9ca3af" }}>
+                <tr><td colSpan={8} style={{ textAlign: "center", padding: "2rem", color: "#9ca3af" }}>
                   <BarChart3 size={32} style={{ margin: "0 auto 0.5rem", opacity: 0.3 }} /><br />لا توجد بيانات في هذه الفترة
                 </td></tr>
               ) : filtered.map(s => (
@@ -121,12 +146,62 @@ export default function ReportsPage() {
                   <td style={{ fontFamily: "monospace", fontSize: "0.8rem", fontWeight: 600 }}>{s.receiptNumber}</td>
                   <td style={{ fontSize: "0.8rem", color: "#6b7280" }}>{formatDateTime(s.createdAt)}</td>
                   <td style={{ fontSize: "0.85rem" }}>{s.cashierName}</td>
-                  <td><span className="badge-green">{s.items.length}</span></td>
+                  <td>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", maxWidth: "320px" }}>
+                      <span className="badge-green" style={{ alignSelf: "flex-start", fontSize: "0.7rem", padding: "1px 6px" }}>
+                        {s.items.length} {s.items.length === 1 ? "صنف" : "أصناف"}
+                      </span>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem", marginTop: "0.25rem" }}>
+                        {s.items.map((item, idx) => (
+                          <span key={idx} style={{
+                            fontSize: "0.72rem",
+                            background: "#f3f4f6",
+                            color: "#374151",
+                            padding: "2px 6px",
+                            borderRadius: "0.25rem",
+                            border: "1px solid #e5e7eb",
+                            fontWeight: 500,
+                            whiteSpace: "nowrap"
+                          }}>
+                            {item.productName} × {item.quantity}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </td>
                   <td style={{ color: "#dc2626", fontSize: "0.85rem" }}>{s.discount > 0 ? `-${formatCurrency(s.discount)}` : "—"}</td>
                   <td style={{ fontWeight: 700, color: "#26683a" }}>{formatCurrency(s.total)}</td>
                   <td><span className={s.paymentMethod === "credit" ? "badge-red" : s.paymentMethod === "card" ? "badge-yellow" : "badge-green"}>
                     {s.paymentMethod === "cash" ? "نقداً" : s.paymentMethod === "card" ? "بطاقة" : "آجل"}
                   </span></td>
+                  <td style={{ textAlign: "center" }}>
+                    <button
+                      onClick={() => handleDeleteSale(s)}
+                      style={{
+                        background: "#fff5f5",
+                        border: "1px solid #fee2e2",
+                        borderRadius: "0.375rem",
+                        color: "#dc2626",
+                        cursor: "pointer",
+                        padding: "0.35rem 0.5rem",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        transition: "all 0.15s",
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = "#fee2e2";
+                        e.currentTarget.style.transform = "scale(1.05)";
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = "#fff5f5";
+                        e.currentTarget.style.transform = "";
+                      }}
+                      title="إلغاء الفاتورة وإرجاع الكميات للمخزون"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -141,5 +216,6 @@ export default function ReportsPage() {
         </div>
       )}
     </div>
+    </PasswordGate>
   );
 }

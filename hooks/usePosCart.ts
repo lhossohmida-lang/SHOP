@@ -37,12 +37,9 @@ export function usePosCart() {
   }, []);
 
   const updateQty = useCallback((productId: string, qty: number) => {
-    if (qty < 1) {
-      setLines(prev => prev.filter(l => l.productId !== productId));
-      return;
-    }
+    const safeQty = Math.max(0, qty);
     setLines(prev =>
-      prev.map(l => l.productId === productId ? { ...l, quantity: qty } : l)
+      prev.map(l => l.productId === productId ? { ...l, quantity: safeQty } : l)
     );
   }, []);
 

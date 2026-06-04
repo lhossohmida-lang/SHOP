@@ -32,6 +32,7 @@ function toProduct(id: string, data: Record<string, unknown>): Product {
     imageUrl: data.imageUrl as string | undefined,
     isActive: data.isActive !== false,
     storeId: (data.storeId as string) || "",
+    expiryDate: data.expiryDate as string | undefined,
     updatedAt:
       data.updatedAt instanceof Timestamp
         ? data.updatedAt.toDate()

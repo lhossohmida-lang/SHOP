@@ -8,15 +8,26 @@
     "start": "next start"
   },
   "dependencies": {
+    "@openrouter/sdk": "^0.12.79",
+    "@zxing/browser": "^0.2.0",
+    "firebase": "^12.14.0",
+    "idb": "^8.0.3",
+    "jsqr": "^1.4.0",
+    "lucide-react": "^1.17.0",
     "next": "16.2.7",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/cli": "^8.4.0",
+    "@capacitor/core": "^8.4.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "electron": "^42.3.3",
+    "electron-builder": "^26.8.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

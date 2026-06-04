@@ -1,34 +1,83 @@
 {
-  "name": "blgasm-pos",
-  "version": "0.1.0",
+  "name": "blgasm-grocery-pos",
+  "version": "1.0.0",
   "private": true,
+  "main": "electron/main.cjs",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --hostname 127.0.0.1 --port 3000",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "lint": "next lint",
+    "electron": "electron .",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "build:desktop": "next build && electron-builder --win nsis --x64",
+    "build:android:web": "cross-env CAPACITOR_BUILD=1 next build",
+    "android:sync": "npm run build:android:web && npx cap sync android",
+    "android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug"
   },
   "dependencies": {
-    "@openrouter/sdk": "^0.12.79",
+    "@openrouter/sdk": "^0.12.0",
     "@zxing/browser": "^0.2.0",
-    "firebase": "^12.14.0",
-    "idb": "^8.0.3",
+    "firebase": "^11.0.0",
+    "idb": "^8.0.0",
     "jsqr": "^1.4.0",
-    "lucide-react": "^1.17.0",
-    "next": "16.2.7",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "lucide-react": "^0.468.0",
+    "next": "15.3.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@capacitor/android": "^8.4.0",
-    "@capacitor/cli": "^8.4.0",
-    "@capacitor/core": "^8.4.0",
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "electron": "^42.3.3",
-    "electron-builder": "^26.8.1",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "concurrently": "^9.2.1",
+    "cross-env": "^7.0.3",
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.0",
+    "wait-on": "^8.0.5"
+  },
+  "build": {
+    "appId": "com.blgasm.pos",
+    "productName": "Blgasm POS",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      ".next/standalone/**/*",
+      ".next/static/**/*",
+      "public/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".next/static",
+        "to": ".next/static"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Blgasm-POS-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Blgasm POS"
+    }
   }
 }

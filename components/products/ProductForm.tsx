@@ -33,30 +33,7 @@ export function ProductForm({ initial, onSave, onClose, saving }: ProductFormPro
   const [purchasePrice, setPurchasePrice] = useState<number | "">(initial?.purchasePrice ?? "");
   const [sellingPrice, setSellingPrice] = useState<number | "">(initial?.sellingPrice ?? "");
   const [stock, setStock] = useState<number | "">(initial?.stock ?? "");
-  const [minStock, setMinStock] = useState<number | "">(initial?.minStock ?? 5);
-  const [unit, setUnit] = useState<ProductFormData["unit"]>(initial?.unit ?? "pcs");
-  const [isActive, setIsActive] = useState(initial?.isActive ?? true);
-  const [showCamera, setShowCamera] = useState(false);
 
-  const handleBarcodeScanned = useCallback((code: string) => {
-    setBarcode(code);
-    setShowCamera(false);
-  }, []);
-
-  const handleSubmit = async () => {
-    await onSave({
-      nameAr,
-      name,
-      barcode,
-      category,
-      purchasePrice: Number(purchasePrice) || 0,
-      sellingPrice: Number(sellingPrice) || 0,
-      stock: Number(stock) || 0,
-      minStock: Number(minStock) || 5,
-      unit,
-      isActive,
-    });
-  };
 
   const pp = Number(purchasePrice) || 0;
   const sp = Number(sellingPrice) || 0;

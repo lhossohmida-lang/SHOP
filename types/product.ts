@@ -14,6 +14,7 @@ export interface Product {
   imageUrl?: string;
   isActive: boolean;
   storeId: string;
+  expiryDate?: string; // Format: YYYY-MM-DD
   updatedAt: Date;
   createdAt: Date;
 }
@@ -30,6 +31,7 @@ export interface ProductFormData {
   unit: ProductUnit;
   imageUrl?: string;
   isActive: boolean;
+  expiryDate?: string; // Format: YYYY-MM-DD
 }
 
 export const PRODUCT_CATEGORIES = [

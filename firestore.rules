@@ -1,0 +1,92 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isAuth() && userDoc().role == 'admin';
+    }
+
+    function isEmployee() {
+      return isAuth() && userDoc().role == 'employee';
+    }
+
+    function isAccountant() {
+      return isAuth() && userDoc().role == 'accountant';
+    }
+
+    function isStaff() {
+      return isAdmin() || isEmployee();
+    }
+
+    function ownStore(storeId) {
+      return isAuth() && userDoc().storeId == storeId && userDoc().isActive == true;
+    }
+
+    // Users collection
+    match /users/{uid} {
+      allow read: if isAuth() && (request.auth.uid == uid || isAdmin());
+      allow create: if isAuth();
+      allow update: if isAuth() && (request.auth.uid == uid || isAdmin());
+      allow delete: if false;
+    }
+
+    // Stores
+    match /stores/{storeId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth();
+      allow delete: if false;
+
+      match /products/{productId} {
+        allow read: if isAuth();
+        allow create, update: if isAuth();
+        allow delete: if isAuth() && isAdmin();
+      }
+
+      match /sales/{saleId} {
+        allow read: if isAuth();
+        allow create: if isAuth();
+        allow update: if false;
+        allow delete: if isAuth() && isAdmin();
+      }
+
+      match /purchases/{purchaseId} {
+        allow read: if isAuth();
+        allow create: if isAuth();
+        allow update: if isAuth() && isAdmin();
+        allow delete: if isAuth() && isAdmin();
+      }
+
+      match /creditCustomers/{customerId} {
+        allow read: if isAuth();
+        allow create, update: if isAuth();
+        allow delete: if isAuth() && isAdmin();
+      }
+
+      match /creditTransactions/{txId} {
+        allow read: if isAuth();
+        allow create: if isAuth();
+        allow update: if false;
+        allow delete: if isAuth() && isAdmin();
+      }
+
+      match /auditLog/{logId} {
+        allow read: if isAuth();
+        allow create: if isAuth();
+        allow update, delete: if false;
+      }
+
+      match /syncQueue/{opId} {
+        allow read, write: if isAuth();
+      }
+    }
+  }
+}

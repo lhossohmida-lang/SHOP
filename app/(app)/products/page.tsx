@@ -115,16 +115,34 @@ export default function ProductsPage() {
                   p.sellingPrice > 0 && p.purchasePrice > 0
                     ? (((p.sellingPrice - p.purchasePrice) / p.sellingPrice) * 100).toFixed(1)
                     : null;
+                const expiry = p.expiryDate ? (() => {
+                  const now = new Date();
+                  now.setHours(0, 0, 0, 0);
+                  const exp = new Date(p.expiryDate);
+                  exp.setHours(0, 0, 0, 0);
+                  const diff = Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                  if (diff <= 0) return { label: "منتهي الصلاحية", color: "#dc2626", bg: "#fef2f2" };
+                  if (diff <= 30) return { label: `ينتهي خلال ${diff} يوم`, color: "#d97706", bg: "#fffbeb" };
+                  return { label: p.expiryDate, color: "#4b5563", bg: "#f3f4f6" };
+                })() : null;
+
                 return (
                   <tr key={p.id}>
                     <td>
                       <div style={{ fontWeight: 600, color: "#17231c" }}>{p.nameAr || p.name}</div>
                       {p.nameAr && <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>{p.name}</div>}
-                      {p.barcode && (
-                        <div style={{ fontSize: "0.7rem", color: "#9ca3af", fontFamily: "monospace" }}>
-                          📊 {p.barcode}
-                        </div>
-                      )}
+                      <div style={{ display: "flex", gap: "0.375rem", alignItems: "center", marginTop: "0.25rem", flexWrap: "wrap" }}>
+                        {p.barcode && (
+                          <span style={{ fontSize: "0.7rem", color: "#9ca3af", fontFamily: "monospace", background: "#f9fafb", padding: "1px 4px", borderRadius: "3px" }}>
+                            📊 {p.barcode}
+                          </span>
+                        )}
+                        {expiry && (
+                          <span style={{ fontSize: "0.7rem", color: expiry.color, background: expiry.bg, padding: "1px 6px", borderRadius: "3px", fontWeight: 600 }}>
+                            📅 {expiry.label}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td><span className="badge-green">{p.category}</span></td>
                     <td style={{ color: "#6b7280" }}>{formatCurrency(p.purchasePrice)}</td>

@@ -188,7 +188,6 @@ export function ProductForm({ initial, onSave, onClose, saving }: ProductFormPro
                 dir="ltr" style={{ textAlign: "left" }}
               />
             </Field>
-
             <Field label="وحدة القياس">
               <select
                 className="input-field"
@@ -210,6 +209,17 @@ export function ProductForm({ initial, onSave, onClose, saving }: ProductFormPro
                 <option value="1">نشط</option>
                 <option value="0">معطل</option>
               </select>
+            </Field>
+
+            <Field label="تاريخ انتهاء الصلاحية">
+              <input
+                type="date"
+                className="input-field"
+                value={expiryDate}
+                onChange={(e) => setExpiryDate(e.target.value)}
+                dir="ltr"
+                style={{ textAlign: "left" }}
+              />
             </Field>
           </div>
 

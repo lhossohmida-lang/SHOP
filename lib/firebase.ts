@@ -22,12 +22,21 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0
 let db: ReturnType<typeof getFirestore>;
 
 try {
+  // Check if we are running in a mobile WebView / Capacitor or mobile browser
+  const isMobile =
+    typeof window !== "undefined" &&
+    (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      !!(window as any).Capacitor);
+
   db = initializeFirestore(app, {
     localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager(),
+      // Only use multi-tab manager on desktop web/Electron.
+      // Mobile WebView crashes/fails when sharing tab manager because it's a single app context.
+      tabManager: isMobile ? undefined : persistentMultipleTabManager(),
     }),
   });
-} catch {
+} catch (err) {
+  console.warn("Firestore custom initialization failed, falling back to default:", err);
   db = getFirestore(app);
 }
 

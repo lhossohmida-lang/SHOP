@@ -301,6 +301,9 @@ async function createWindow() {
   // Open all external navigation (e.g. clicked <a> links) in the system browser
   mainWindow.webContents.on("will-navigate", (event, url) => {
     const appUrl = `http://127.0.0.1`;
+    if (url.startsWith("about:") || url.startsWith("chrome-extension:")) {
+      return;
+    }
     if (!url.startsWith(appUrl)) {
       event.preventDefault();
       shell.openExternal(url);

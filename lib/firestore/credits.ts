@@ -57,6 +57,10 @@ function toTransaction(id: string, data: Record<string, unknown>): CreditTransac
   };
 }
 
+function sortTransactionsNewestFirst(txs: CreditTransaction[]): CreditTransaction[] {
+  return [...txs].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+}
+
 export function creditCustomersCol(storeId: string) {
   return collection(db, "stores", storeId, "creditCustomers");
 }
@@ -122,11 +126,10 @@ export async function getCreditTransactions(
 ): Promise<CreditTransaction[]> {
   const q = query(
     creditTransactionsCol(storeId),
-    where("customerId", "==", customerId),
-    orderBy("createdAt", "desc")
+    where("customerId", "==", customerId)
   );
   const snap = await getDocs(q);
-  return snap.docs.map((d) => toTransaction(d.id, d.data()));
+  return sortTransactionsNewestFirst(snap.docs.map((d) => toTransaction(d.id, d.data())));
 }
 
 export function subscribeCreditTransactions(
@@ -136,10 +139,9 @@ export function subscribeCreditTransactions(
 ): () => void {
   const q = query(
     creditTransactionsCol(storeId),
-    where("customerId", "==", customerId),
-    orderBy("createdAt", "desc")
+    where("customerId", "==", customerId)
   );
   return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => toTransaction(d.id, d.data())));
+    callback(sortTransactionsNewestFirst(snap.docs.map((d) => toTransaction(d.id, d.data()))));
   });
 }

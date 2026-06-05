@@ -61,17 +61,15 @@ export default function CreditsPage() {
     (c) => !search || c.name.includes(search) || c.phone.includes(search)
   );
 
-  const loadTransactions = async (c: CreditCustomer) => {
-    if (!storeId) return;
-    setLoadingTx(true);
-    const txs = await getCreditTransactions(storeId, c.id);
-    
-    // Resolve sale items for all purchase transactions
-    const resolvedTxs = await Promise.all(
+  const resolveTransactionsWithItems = async (
+    txs: CreditTransaction[],
+    currentStoreId: string
+  ): Promise<CreditTransactionWithItems[]> => {
+    return Promise.all(
       txs.map(async (tx) => {
         if (tx.type === "purchase" && tx.saleId) {
           try {
-            const sale = await getSale(storeId, tx.saleId);
+            const sale = await getSale(currentStoreId, tx.saleId);
             if (sale) {
               return {
                 ...tx,
@@ -90,9 +88,24 @@ export default function CreditsPage() {
         return tx;
       })
     );
+  };
 
-    setTransactions(resolvedTxs);
-    setLoadingTx(false);
+  const loadTransactions = async (c: CreditCustomer) => {
+    if (!storeId) return;
+    setLoadingTx(true);
+    setTransactions([]);
+    setErrorMsg("");
+    try {
+      const txs = await getCreditTransactions(storeId, c.id);
+      const resolvedTxs = await resolveTransactionsWithItems(txs, storeId);
+      setTransactions(resolvedTxs);
+    } catch (e: unknown) {
+      console.error("Error loading credit transactions:", e);
+      const msg = e instanceof Error ? e.message : String(e);
+      setErrorMsg("تعذر تحميل معاملات العميل: " + msg);
+    } finally {
+      setLoadingTx(false);
+    }
   };
 
   const handlePrintStatement = async (c: CreditCustomer) => {
@@ -100,30 +113,18 @@ export default function CreditsPage() {
     let txsToPrint = transactions;
     if (expandedId !== c.id) {
       setLoadingTx(true);
-      const txs = await getCreditTransactions(storeId, c.id);
-      const resolvedTxs = await Promise.all(
-        txs.map(async (tx) => {
-          if (tx.type === "purchase" && tx.saleId) {
-            try {
-              const sale = await getSale(storeId, tx.saleId);
-              if (sale) {
-                return {
-                  ...tx,
-                  saleItems: sale.items.map(item => ({
-                    productName: item.productName,
-                    quantity: item.quantity,
-                    unitPrice: item.unitPrice,
-                    totalPrice: item.totalPrice,
-                  }))
-                };
-              }
-            } catch {}
-          }
-          return tx;
-        })
-      );
-      txsToPrint = resolvedTxs;
-      setLoadingTx(false);
+      setErrorMsg("");
+      try {
+        const txs = await getCreditTransactions(storeId, c.id);
+        txsToPrint = await resolveTransactionsWithItems(txs, storeId);
+      } catch (e: unknown) {
+        console.error("Error loading credit transactions for print:", e);
+        const msg = e instanceof Error ? e.message : String(e);
+        setErrorMsg("تعذر تحميل كشف معاملات العميل: " + msg);
+        return;
+      } finally {
+        setLoadingTx(false);
+      }
     }
     printCustomerStatement(c, txsToPrint);
   };

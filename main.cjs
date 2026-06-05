@@ -2,11 +2,28 @@ const { app, BrowserWindow, shell } = require("electron");
 const path = require("path");
 const http = require("http");
 const fs = require("fs");
-const { fork } = require("child_process");
-
-let serverProcess = null;
+const Module = require("module");
 
 let mainWindow = null;
+let standaloneNodeModules = null;
+
+// Hook Node's module resolution so that standalone modules can be resolved
+const originalResolve = Module._resolveFilename;
+Module._resolveFilename = function (request, parent, isMain, options) {
+  try {
+    return originalResolve(request, parent, isMain, options);
+  } catch (err) {
+    if (standaloneNodeModules && !path.isAbsolute(request) && !request.startsWith(".")) {
+      try {
+        const lookupPath = path.join(standaloneNodeModules, request);
+        return originalResolve(lookupPath, parent, isMain, options);
+      } catch (resolveErr) {
+        // ignore and let original error throw
+      }
+    }
+    throw err;
+  }
+};
 
 function log(message, error) {
   try {
@@ -21,18 +38,20 @@ function log(message, error) {
 }
 
 function readEnvFile(envFile) {
-  if (!fs.existsSync(envFile)) return;
+  if (!fs.existsSync(envFile)) return {};
 
+  const result = {};
   const lines = fs.readFileSync(envFile, "utf8").split(/\r?\n/);
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
 
     const [key, ...rest] = trimmed.split("=");
-    if (key && rest.length > 0 && process.env[key.trim()] === undefined) {
-      process.env[key.trim()] = rest.join("=").trim();
+    if (key && rest.length > 0) {
+      result[key.trim()] = rest.join("=").trim();
     }
   }
+  return result;
 }
 
 function injectEnv() {
@@ -42,11 +61,14 @@ function injectEnv() {
   ];
 
   for (const envFile of candidates) {
-    readEnvFile(envFile);
+    const vars = readEnvFile(envFile);
+    for (const [key, val] of Object.entries(vars)) {
+      if (process.env[key] === undefined) process.env[key] = val;
+    }
   }
 }
 
-function waitForServer(url, retries = 80, delay = 250) {
+function waitForServer(url, retries = 120, delay = 300) {
   return new Promise((resolve, reject) => {
     const attempt = () => {
       http
@@ -103,11 +125,15 @@ function findStandaloneRoot() {
     path.join(__dirname, "..", ".next", "standalone"),
   ];
 
-  return candidates.find(
-    (candidate) =>
-      fs.existsSync(path.join(candidate, "server.js")) &&
-      fs.existsSync(path.join(candidate, "node_modules", "next"))
-  );
+  for (const candidate of candidates) {
+    const serverJs = path.join(candidate, "server.js");
+    const nextPkg = path.join(candidate, "node_modules", "next");
+    log(`Checking standalone candidate: ${candidate} | server.js: ${fs.existsSync(serverJs)} | next: ${fs.existsSync(nextPkg)}`);
+    if (fs.existsSync(serverJs) && fs.existsSync(nextPkg)) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 function loadStartupError(error) {
@@ -167,80 +193,46 @@ async function startNextServer() {
 
   const nextRoot = findStandaloneRoot();
   if (!nextRoot) {
-    throw new Error("Standalone Next.js build was not found in the packaged app.");
+    throw new Error(
+      "Standalone Next.js build was not found in the packaged app.\n" +
+      "Expected: resources/app/.next/standalone/server.js + node_modules/next"
+    );
   }
 
   prepareStandalone(nextRoot);
 
   const port = await getAvailablePort(3000);
   const serverPath = path.join(nextRoot, "server.js");
-  const standaloneNodeModules = path.join(nextRoot, "node_modules");
+  
+  // Set standalone modules path for custom resolver hook
+  standaloneNodeModules = path.join(nextRoot, "node_modules");
 
-  log(`Starting local Next.js server from ${serverPath} on port ${port}`);
+  log(`Starting local Next.js server inside main process from ${serverPath} on port ${port}`);
+  log(`standalone node_modules: ${standaloneNodeModules}`);
 
-  await new Promise((resolve, reject) => {
-    // Read env file candidates so child process inherits them
-    const envCandidates = [
-      path.join(process.resourcesPath, "app", ".env.production"),
-      path.join(nextRoot, "..", "..", ".env.production"),
-      path.join(nextRoot, ".env.production"),
-    ];
+  // Set production environment variables
+  process.env.NODE_ENV = "production";
+  process.env.PORT = String(port);
+  process.env.HOSTNAME = "127.0.0.1";
 
-    const childEnv = {
-      ...process.env,
-      NODE_ENV: "production",
-      PORT: String(port),
-      HOSTNAME: "127.0.0.1",
-      // Ensure standalone node_modules takes priority for module resolution
-      NODE_PATH: standaloneNodeModules,
-    };
+  // Merge env files into process.env so they are available to Next.js
+  const envCandidates = [
+    path.join(process.resourcesPath, "app", ".env.production"),
+    path.join(nextRoot, "..", "..", ".env.production"),
+    path.join(nextRoot, ".env.production"),
+  ];
 
-    // Inject env file values into child env
-    for (const envFile of envCandidates) {
-      if (!fs.existsSync(envFile)) continue;
-      const lines = fs.readFileSync(envFile, "utf8").split(/\r?\n/);
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith("#")) continue;
-        const [key, ...rest] = trimmed.split("=");
-        if (key && rest.length > 0 && childEnv[key.trim()] === undefined) {
-          childEnv[key.trim()] = rest.join("=").trim();
-        }
+  for (const envFile of envCandidates) {
+    const vars = readEnvFile(envFile);
+    for (const [key, val] of Object.entries(vars)) {
+      if (process.env[key] === undefined) {
+        process.env[key] = val;
       }
     }
+  }
 
-    serverProcess = fork(serverPath, [], {
-      cwd: nextRoot,
-      env: childEnv,
-      // Use the standalone node_modules for resolution
-      execArgv: ["--require", "module"].concat(
-        [`--experimental-loader`].length ? [] : []
-      ),
-      stdio: ["ignore", "pipe", "pipe", "ipc"],
-    });
-
-    if (serverProcess.stdout) {
-      serverProcess.stdout.on("data", (d) => log(`[server] ${d.toString().trim()}`));
-    }
-    if (serverProcess.stderr) {
-      serverProcess.stderr.on("data", (d) => log(`[server-err] ${d.toString().trim()}`));
-    }
-
-    serverProcess.on("error", (err) => {
-      log("Server process error", err);
-      reject(err);
-    });
-
-    serverProcess.on("exit", (code) => {
-      log(`Server process exited with code ${code}`);
-      if (code !== 0 && code !== null) {
-        reject(new Error(`Server process exited with code ${code}`));
-      }
-    });
-
-    // Resolve once server is ready (we'll poll via waitForServer)
-    resolve();
-  });
+  // Load the standalone server directly in the main process
+  require(serverPath);
 
   const url = `http://127.0.0.1:${port}`;
   await waitForServer(url, 120, 300);
@@ -292,13 +284,6 @@ app.whenReady().then(createWindow);
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
-});
-
-app.on("will-quit", () => {
-  if (serverProcess) {
-    try { serverProcess.kill(); } catch {}
-    serverProcess = null;
-  }
 });
 
 app.on("activate", () => {

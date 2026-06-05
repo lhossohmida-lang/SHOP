@@ -2,10 +2,28 @@ const { app, BrowserWindow, shell } = require("electron");
 const path = require("path");
 const http = require("http");
 const fs = require("fs");
-const { fork } = require("child_process");
+const Module = require("module");
 
-let serverProcess = null;
 let mainWindow = null;
+let standaloneNodeModules = null;
+
+// Hook Node's module resolution so that standalone modules can be resolved
+const originalResolve = Module._resolveFilename;
+Module._resolveFilename = function (request, parent, isMain, options) {
+  try {
+    return originalResolve(request, parent, isMain, options);
+  } catch (err) {
+    if (standaloneNodeModules && !path.isAbsolute(request) && !request.startsWith(".")) {
+      try {
+        const lookupPath = path.join(standaloneNodeModules, request);
+        return originalResolve(lookupPath, parent, isMain, options);
+      } catch (resolveErr) {
+        // ignore and let original error throw
+      }
+    }
+    throw err;
+  }
+};
 
 function log(message, error) {
   try {
@@ -185,63 +203,36 @@ async function startNextServer() {
 
   const port = await getAvailablePort(3000);
   const serverPath = path.join(nextRoot, "server.js");
-  const standaloneNodeModules = path.join(nextRoot, "node_modules");
+  
+  // Set standalone modules path for custom resolver hook
+  standaloneNodeModules = path.join(nextRoot, "node_modules");
 
-  log(`Starting local Next.js server via fork: ${serverPath} on port ${port}`);
+  log(`Starting local Next.js server inside main process from ${serverPath} on port ${port}`);
   log(`standalone node_modules: ${standaloneNodeModules}`);
 
-  // Build child env - merge all env sources
+  // Set production environment variables
+  process.env.NODE_ENV = "production";
+  process.env.PORT = String(port);
+  process.env.HOSTNAME = "127.0.0.1";
+
+  // Merge env files into process.env so they are available to Next.js
   const envCandidates = [
     path.join(process.resourcesPath, "app", ".env.production"),
     path.join(nextRoot, "..", "..", ".env.production"),
     path.join(nextRoot, ".env.production"),
   ];
 
-  const childEnv = {
-    ...process.env,
-    NODE_ENV: "production",
-    PORT: String(port),
-    HOSTNAME: "127.0.0.1",
-    // Ensure standalone node_modules takes priority for module resolution
-    NODE_PATH: standaloneNodeModules,
-  };
-
   for (const envFile of envCandidates) {
     const vars = readEnvFile(envFile);
     for (const [key, val] of Object.entries(vars)) {
-      if (childEnv[key] === undefined) childEnv[key] = val;
+      if (process.env[key] === undefined) {
+        process.env[key] = val;
+      }
     }
   }
 
-  await new Promise((resolve, reject) => {
-    serverProcess = fork(serverPath, [], {
-      cwd: nextRoot,
-      env: childEnv,
-      stdio: ["ignore", "pipe", "pipe", "ipc"],
-    });
-
-    if (serverProcess.stdout) {
-      serverProcess.stdout.on("data", (d) => log(`[server] ${d.toString().trim()}`));
-    }
-    if (serverProcess.stderr) {
-      serverProcess.stderr.on("data", (d) => log(`[server-err] ${d.toString().trim()}`));
-    }
-
-    serverProcess.on("error", (err) => {
-      log("Server process error", err);
-      reject(err);
-    });
-
-    serverProcess.on("exit", (code) => {
-      log(`Server process exited with code ${code}`);
-      if (code !== 0 && code !== null) {
-        reject(new Error(`Server process exited with code ${code}`));
-      }
-    });
-
-    // Don't wait for server here — poll via waitForServer below
-    resolve();
-  });
+  // Load the standalone server directly in the main process
+  require(serverPath);
 
   const url = `http://127.0.0.1:${port}`;
   await waitForServer(url, 120, 300);
@@ -293,13 +284,6 @@ app.whenReady().then(createWindow);
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
-});
-
-app.on("will-quit", () => {
-  if (serverProcess) {
-    try { serverProcess.kill(); } catch {}
-    serverProcess = null;
-  }
 });
 
 app.on("activate", () => {

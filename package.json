@@ -4,8 +4,8 @@
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "next dev --hostname 127.0.0.1 --port 3000",
-    "build": "next build",
+    "dev": "next dev --webpack --hostname 127.0.0.1 --port 3000",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "next lint",
     "electron": "electron .",
@@ -53,13 +53,20 @@
       ".next/standalone/**/*",
       ".next/static/**/*",
       "public/**/*",
-      "node_modules/**/*",
       "package.json"
     ],
     "extraResources": [
       {
         "from": ".next/static",
-        "to": ".next/static"
+        "to": "app/.next/static"
+      },
+      {
+        "from": ".env.production",
+        "to": "app/.env.production"
+      },
+      {
+        "from": "public",
+        "to": "app/public"
       }
     ],
     "win": {

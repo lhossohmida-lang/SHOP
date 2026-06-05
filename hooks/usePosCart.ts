@@ -53,15 +53,15 @@ export function usePosCart() {
     setDiscountPct(0);
   }, []);
 
-  // Totals for selling price (credit mode)
+  // Totals for selling price (used for both cash and credit)
   const sellSubtotal = useMemo(
     () => lines.reduce((s, l) => s + l.sellingPrice * l.quantity, 0),
     [lines]
   );
 
-  // Totals for purchase price (cash mode)
+  // Cash mode also uses selling price
   const buySubtotal = useMemo(
-    () => lines.reduce((s, l) => s + l.purchasePrice * l.quantity, 0),
+    () => lines.reduce((s, l) => s + l.sellingPrice * l.quantity, 0),
     [lines]
   );
 

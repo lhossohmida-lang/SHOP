@@ -63,15 +63,38 @@ export default function AiPage() {
     setLoading(true);
     try {
       const ctx = buildContext();
-      const res = await fetch("/api/ai/chat", {
+      const apiKey = process.env.NEXT_PUBLIC_OPENROUTER_API_KEY;
+      const model = process.env.NEXT_PUBLIC_AI_MODEL || "google/gemini-2.5-flash";
+
+      if (!apiKey || apiKey === "your-openrouter-key-here") {
+        setMessages(prev => [...prev, { role: "assistant", content: "⚠️ مفتاح OpenRouter API غير مُعين. أضف NEXT_PUBLIC_OPENROUTER_API_KEY في ملف .env.local للحصول على إجابات ذكية." }]);
+        return;
+      }
+
+      const systemPrompt = `أنت مساعد تحليلي ذكي لمتجر بقالة اسمه Blgasm POS. لديك وصول لبيانات المتجر التالية:\n- ملخص المبيعات: ${ctx.salesSummary || "غير متوفر"}\n- حالة المخزون: ${ctx.inventorySummary || "غير متوفر"}\n- الكريديتيات (الديون): ${ctx.creditsSummary || "غير متوفر"}\n- أكثر المنتجات مبيعاً: ${ctx.topProducts || "غير متوفر"}\n\nأجب دائماً باللغة العربية بشكل موجز وعملي ومفيد. استخدم الأرقام والبيانات المتاحة في إجاباتك.`;
+
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, context: ctx, storeId }),
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": typeof window !== "undefined" ? window.location.origin : "http://localhost:3000",
+          "X-Title": "Blgasm POS",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: text },
+          ],
+          max_tokens: 512,
+        }),
       });
       const data = await res.json();
-      setMessages(prev => [...prev, { role: "assistant", content: data.reply || "عذراً، لم أتمكن من الإجابة." }]);
+      const reply = data.choices?.[0]?.message?.content || "عذراً، لم أتمكن من الإجابة في الوقت الحالي.";
+      setMessages(prev => [...prev, { role: "assistant", content: reply }]);
     } catch {
-      setMessages(prev => [...prev, { role: "assistant", content: "❌ حدث خطأ في الاتصال. تحقق من مفتاح OpenRouter API." }]);
+      setMessages(prev => [...prev, { role: "assistant", content: "❌ حدث خطأ في الاتصال بخدمة الذكاء الاصطناعي." }]);
     } finally {
       setLoading(false);
     }

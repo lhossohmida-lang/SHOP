@@ -11,8 +11,7 @@ interface Props {
 }
 
 export default function PosTable({ lines, mode, onQty, onRemove }: Props) {
-  const unitPrice = (l: CartLine) =>
-    mode === "cash" ? l.purchasePrice : l.sellingPrice;
+  const unitPrice = (l: CartLine) => l.sellingPrice;
 
   return (
     <div style={{ overflow: "auto", flex: 1 }}>

@@ -84,15 +84,15 @@ export default function PosPage() {
 
   const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
-  const processLines = (useSellingPrice: boolean) =>
+  const processLines = () =>
     cart.lines
       .filter(l => l.quantity > 0)
       .map(l => ({
         productId: l.productId,
         productName: l.productName,
         quantity: l.quantity,
-        unitPrice: useSellingPrice ? l.sellingPrice : l.purchasePrice,
-        totalPrice: (useSellingPrice ? l.sellingPrice : l.purchasePrice) * l.quantity,
+        unitPrice: l.sellingPrice,
+        totalPrice: l.sellingPrice * l.quantity,
       }));
 
   const handleConfirm = async () => {
@@ -104,7 +104,7 @@ export default function PosPage() {
     setLoading(true);
     try {
       const isCash = mode === "cash";
-      const items = processLines(!isCash);
+      const items = processLines();
       
       if (items.length === 0) {
         showMsg("❌ خطأ: لا توجد منتجات صالحة للبيع بالسلّة");
@@ -112,8 +112,8 @@ export default function PosPage() {
         return;
       }
 
-      const subtotal = isCash ? cart.buySubtotal : cart.sellSubtotal;
-      const total = isCash ? cart.buyTotal : cart.sellTotal;
+      const subtotal = cart.sellSubtotal;
+      const total = cart.sellTotal;
       const receiptNumber = generateReceiptNumber();
 
       const saleData: Omit<Sale, "id" | "createdAt"> = {

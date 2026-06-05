@@ -22,11 +22,11 @@ import {
 
 const navItems = [
   { href: "/dashboard", label: "لوحة التحكم", icon: LayoutDashboard },
-  { href: "/pos", label: "نقطة البيع", icon: ShoppingCart },
+  { href: "/pos", label: "بيع", icon: ShoppingCart },
   { href: "/products", label: "المنتجات", icon: Package },
   { href: "/inventory", label: "المخزون", icon: Boxes },
   { href: "/purchases", label: "المشتريات", icon: TruckIcon },
-  { href: "/credits", label: "الكريديتيات", icon: CreditCard },
+  { href: "/credits", label: "خانة الكريديات", icon: CreditCard },
   { href: "/reports", label: "التقارير", icon: BarChart3 },
   { href: "/ai", label: "المساعد الذكي", icon: Sparkles },
 ];

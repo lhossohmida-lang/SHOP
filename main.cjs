@@ -249,6 +249,7 @@ async function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: false,
+      allowRunningInsecureContent: true,
     },
     title: "Blgasm POS",
     backgroundColor: "#f8fdf5",
@@ -256,6 +257,21 @@ async function createWindow() {
     autoHideMenuBar: true,
     icon: path.join(__dirname, "..", "public", "icon.png"),
   });
+
+  // Grant camera and microphone permissions automatically
+  mainWindow.webContents.session.setPermissionRequestHandler(
+    (_webContents, permission, callback) => {
+      const allowed = ["media", "camera", "microphone", "geolocation", "notifications"];
+      callback(allowed.includes(permission));
+    }
+  );
+
+  mainWindow.webContents.session.setPermissionCheckHandler(
+    (_webContents, permission) => {
+      const allowed = ["media", "camera", "microphone"];
+      return allowed.includes(permission);
+    }
+  );
 
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
@@ -265,6 +281,15 @@ async function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  // Open all external navigation (e.g. clicked <a> links) in the system browser
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    const appUrl = `http://127.0.0.1`;
+    if (!url.startsWith(appUrl)) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
   });
 
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {

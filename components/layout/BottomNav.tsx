@@ -14,11 +14,11 @@ import {
 
 const navItems = [
   { href: "/dashboard", label: "الرئيسية", icon: LayoutDashboard },
-  { href: "/pos", label: "البيع", icon: ShoppingCart },
+  { href: "/pos", label: "بيع", icon: ShoppingCart },
   { href: "/inventory", label: "المخزون", icon: Boxes },
   { href: "/products", label: "المنتجات", icon: Package },
   { href: "/purchases", label: "المشتريات", icon: ClipboardList },
-  { href: "/credits", label: "الديون", icon: CreditCard },
+  { href: "/credits", label: "خانة الكريديات", icon: CreditCard },
   { href: "/reports", label: "التقارير", icon: BarChart3 },
   { href: "/ai", label: "الذكاء", icon: Sparkles },
 ];

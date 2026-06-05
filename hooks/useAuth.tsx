@@ -37,7 +37,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Safety timeout: if Firebase Auth does not respond within 5 seconds
+    // (e.g. in BlueStacks / WebView with slow network), stop loading and
+    // fall through to /login instead of staying on splash screen forever.
+    const timeout = setTimeout(() => {
+      setLoading(false);
+    }, 5000);
+
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      clearTimeout(timeout); // Auth responded – cancel the safety timeout
       setUser(firebaseUser);
       if (firebaseUser) {
         try {
@@ -92,7 +100,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setLoading(false);
     });
-    return unsub;
+
+    return () => {
+      clearTimeout(timeout);
+      unsub();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {

@@ -6,10 +6,16 @@ import {
   addCreditCustomer, updateCreditCustomer, deleteCreditCustomer,
   addCreditTransaction, getCreditTransactions,
 } from "@/lib/firestore/credits";
+import { getSale } from "@/lib/firestore/sales";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDateTime } from "@/lib/utils/date";
-import { Plus, X, Search, CreditCard, Phone, ChevronDown, ChevronUp, Calendar, Trash2 } from "lucide-react";
+import { printCustomerStatement } from "@/lib/utils/print";
+import { Plus, X, Search, CreditCard, Phone, ChevronDown, ChevronUp, Calendar, Trash2, Printer } from "lucide-react";
 import type { CreditCustomer, CreditTransaction } from "@/types/credit";
+
+interface CreditTransactionWithItems extends CreditTransaction {
+  saleItems?: { productName: string; quantity: number; unitPrice: number; totalPrice: number }[];
+}
 
 // At module scope — prevents focus-loss bug
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {
@@ -30,7 +36,7 @@ export default function CreditsPage() {
   const [showAddCustomer, setShowAddCustomer] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<CreditCustomer | null>(null);
-  const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
+  const [transactions, setTransactions] = useState<CreditTransactionWithItems[]>([]);
   const [loadingTx, setLoadingTx] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -59,8 +65,67 @@ export default function CreditsPage() {
     if (!storeId) return;
     setLoadingTx(true);
     const txs = await getCreditTransactions(storeId, c.id);
-    setTransactions(txs);
+    
+    // Resolve sale items for all purchase transactions
+    const resolvedTxs = await Promise.all(
+      txs.map(async (tx) => {
+        if (tx.type === "purchase" && tx.saleId) {
+          try {
+            const sale = await getSale(storeId, tx.saleId);
+            if (sale) {
+              return {
+                ...tx,
+                saleItems: sale.items.map(item => ({
+                  productName: item.productName,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  totalPrice: item.totalPrice,
+                }))
+              };
+            }
+          } catch (e) {
+            console.error("Error loading sale detail:", e);
+          }
+        }
+        return tx;
+      })
+    );
+
+    setTransactions(resolvedTxs);
     setLoadingTx(false);
+  };
+
+  const handlePrintStatement = async (c: CreditCustomer) => {
+    if (!storeId) return;
+    let txsToPrint = transactions;
+    if (expandedId !== c.id) {
+      setLoadingTx(true);
+      const txs = await getCreditTransactions(storeId, c.id);
+      const resolvedTxs = await Promise.all(
+        txs.map(async (tx) => {
+          if (tx.type === "purchase" && tx.saleId) {
+            try {
+              const sale = await getSale(storeId, tx.saleId);
+              if (sale) {
+                return {
+                  ...tx,
+                  saleItems: sale.items.map(item => ({
+                    productName: item.productName,
+                    quantity: item.quantity,
+                    unitPrice: item.unitPrice,
+                    totalPrice: item.totalPrice,
+                  }))
+                };
+              }
+            } catch {}
+          }
+          return tx;
+        })
+      );
+      txsToPrint = resolvedTxs;
+      setLoadingTx(false);
+    }
+    printCustomerStatement(c, txsToPrint);
   };
 
   const toggleExpand = async (c: CreditCustomer) => {
@@ -237,6 +302,14 @@ export default function CreditsPage() {
                   <CreditCard size={14} /> دفعة
                 </button>
                 <button
+                  onClick={() => handlePrintStatement(c)}
+                  className="btn-secondary"
+                  style={{ padding: "0.375rem 0.5rem" }}
+                  title="طباعة كشف الحساب"
+                >
+                  <Printer size={14} />
+                </button>
+                <button
                   onClick={() => setCustomerToDelete(c)}
                   className="btn-danger"
                   style={{ padding: "0.375rem 0.5rem" }}
@@ -260,18 +333,51 @@ export default function CreditsPage() {
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
                     {transactions.slice(0, 20).map((tx) => (
                       <div key={tx.id} style={{
-                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                        display: "flex", justifyContent: "space-between", alignItems: "flex-start",
                         padding: "0.5rem", borderRadius: "0.375rem",
                         background: tx.type === "payment" ? "#f0fdf4" : "#fff5f5",
                       }}>
                         <div>
-                          <span className={tx.type === "payment" ? "badge-green" : "badge-red"} style={{ fontSize: "0.7rem" }}>
-                            {tx.type === "payment" ? "دفعة" : tx.type === "purchase" ? "شراء" : "تعديل"}
-                          </span>
-                          <span style={{ fontSize: "0.72rem", color: "#6b7280", marginRight: "0.5rem" }}>
-                            {formatDateTime(tx.createdAt)}
-                          </span>
-                          {tx.note && <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}> — {tx.note}</span>}
+                          <div>
+                            <span className={tx.type === "payment" ? "badge-green" : "badge-red"} style={{ fontSize: "0.7rem" }}>
+                              {tx.type === "payment" ? "دفعة" : tx.type === "purchase" ? "شراء" : "تعديل"}
+                            </span>
+                            <span style={{ fontSize: "0.72rem", color: "#6b7280", marginRight: "0.5rem" }}>
+                              {formatDateTime(tx.createdAt)}
+                            </span>
+                            {tx.note && <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}> — {tx.note}</span>}
+                          </div>
+                          {/* List detailed products taken */}
+                          {tx.saleItems && tx.saleItems.length > 0 && (
+                            <div style={{ marginTop: "0.4rem", paddingRight: "0.5rem", borderRight: "2px solid #e5e7eb", display: "flex", flexDirection: "column", gap: "4px" }}>
+                              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                                <span style={{ fontSize: "0.7rem", fontWeight: "bold", color: "#6b7280" }}>السلع المشتراة:</span>
+                                <button
+                                  onClick={async () => {
+                                    if (tx.saleId && storeId) {
+                                      const sale = await getSale(storeId, tx.saleId);
+                                      if (sale) {
+                                        const { printReceipt } = await import("@/lib/utils/print");
+                                        printReceipt(sale);
+                                      }
+                                    }
+                                  }}
+                                  style={{
+                                    background: "none", border: "none", color: "#2563eb", cursor: "pointer",
+                                    fontSize: "0.68rem", textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: "2px",
+                                    padding: 0
+                                  }}
+                                >
+                                  🖨️ طباعة الوصل الأصلي
+                                </button>
+                              </div>
+                              {tx.saleItems.map((item, idx) => (
+                                <span key={idx} style={{ fontSize: "0.72rem", color: "#4b5563" }}>
+                                  📦 {item.productName} ({item.quantity} × {formatCurrency(item.unitPrice)}) = <strong style={{ color: "#111827" }}>{formatCurrency(item.totalPrice)}</strong>
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         <div style={{ textAlign: "left" }}>
                           <div style={{ fontWeight: 700, fontSize: "0.85rem", color: tx.type === "payment" ? "#26683a" : "#dc2626" }}>

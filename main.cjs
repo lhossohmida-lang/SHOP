@@ -279,6 +279,21 @@ async function createWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Allow about:blank or local print preview windows to open internally in Electron
+    if (url === "about:blank" || url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost")) {
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          autoHideMenuBar: true,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            webSecurity: false,
+          }
+        }
+      };
+    }
+    // Deny external links and open in system browser
     shell.openExternal(url);
     return { action: "deny" };
   });

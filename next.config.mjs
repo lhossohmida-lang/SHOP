@@ -1,3 +1,5 @@
+import path from "node:path";
+
 /** @type {import('next').NextConfig} */
 const isAndroidBuild = process.env.CAPACITOR_BUILD === "1";
 
@@ -7,7 +9,7 @@ const nextConfig = {
   images: { unoptimized: true },
   typescript: { ignoreBuildErrors: true },
   turbopack: {
-    root: ".",
+    root: path.resolve("."),
   },
 };
 

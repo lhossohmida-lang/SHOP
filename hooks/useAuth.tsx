@@ -3,9 +3,10 @@ import { useState, useEffect, createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import {
   onAuthStateChanged,
+  signInAnonymously,
   signInWithEmailAndPassword,
   signOut,
-  User,
+  type User,
 } from "firebase/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
@@ -31,77 +32,135 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
+function isAutoLoginEnabled() {
+  return process.env.NEXT_PUBLIC_AUTO_LOGIN === "1";
+}
+
+async function signInAutomatically() {
+  const email = process.env.NEXT_PUBLIC_AUTO_LOGIN_EMAIL?.trim();
+  const password = process.env.NEXT_PUBLIC_AUTO_LOGIN_PASSWORD?.trim();
+
+  if (email && password) {
+    await signInWithEmailAndPassword(auth, email, password);
+    return;
+  }
+
+  await signInAnonymously(auth);
+}
+
+function getDisplayName(firebaseUser: User) {
+  return (
+    firebaseUser.displayName ||
+    firebaseUser.email?.split("@")[0] ||
+    "مستخدم"
+  );
+}
+
+function createFallbackAppUser(firebaseUser: User): AppUser {
+  return {
+    uid: firebaseUser.uid,
+    email: firebaseUser.email || "",
+    displayName: getDisplayName(firebaseUser),
+    role: "admin",
+    storeId: firebaseUser.uid,
+    isActive: true,
+    createdAt: new Date(),
+  };
+}
+
+async function loadAppUser(firebaseUser: User): Promise<AppUser> {
+  const fallback = createFallbackAppUser(firebaseUser);
+  const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+
+  if (userDoc.exists()) {
+    const data = userDoc.data();
+    return {
+      ...fallback,
+      email: data.email || firebaseUser.email || "",
+      displayName: data.displayName || getDisplayName(firebaseUser),
+      role: data.role || "employee",
+      storeId: data.storeId || fallback.storeId,
+      isActive: data.isActive !== false,
+      createdAt: data.createdAt?.toDate() || fallback.createdAt,
+    };
+  }
+
+  await setDoc(doc(db, "users", firebaseUser.uid), {
+    email: fallback.email,
+    displayName: fallback.displayName,
+    role: fallback.role,
+    storeId: fallback.storeId,
+    isActive: fallback.isActive,
+    createdAt: serverTimestamp(),
+  });
+  await setDoc(
+    doc(db, "stores", fallback.storeId),
+    {
+      name: "Blgasm POS Store",
+      address: "",
+      phone: "",
+      currency: "DZD",
+      taxRate: 0,
+      createdAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  return fallback;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [appUser, setAppUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Safety timeout: if Firebase Auth does not respond within 5 seconds
-    // (e.g. in BlueStacks / WebView with slow network), stop loading and
-    // fall through to /login instead of staying on splash screen forever.
+    let active = true;
+    let autoLoginStarted = false;
     const timeout = setTimeout(() => {
-      setLoading(false);
-    }, 5000);
+      if (active) setLoading(false);
+    }, 10000);
 
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      clearTimeout(timeout); // Auth responded – cancel the safety timeout
+    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
+      clearTimeout(timeout);
+      if (!active) return;
+
       setUser(firebaseUser);
-      if (firebaseUser) {
-        try {
-          const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
-          if (userDoc.exists()) {
-            const data = userDoc.data();
-            setAppUser({
-              uid: firebaseUser.uid,
-              email: data.email || firebaseUser.email || "",
-              displayName: data.displayName || firebaseUser.displayName || "",
-              role: data.role || "employee",
-              storeId: data.storeId || "",
-              isActive: data.isActive !== false,
-              createdAt: data.createdAt?.toDate() || new Date(),
-            });
-          } else {
-            const storeId = firebaseUser.uid;
-            const newUser = {
-              email: firebaseUser.email || "",
-              displayName:
-                firebaseUser.displayName ||
-                firebaseUser.email?.split("@")[0] ||
-                "مستخدم",
-              role: "admin" as const,
-              storeId,
-              isActive: true,
-              createdAt: new Date(),
-            };
-            await setDoc(doc(db, "users", firebaseUser.uid), {
-              ...newUser,
-              createdAt: serverTimestamp(),
-            });
-            await setDoc(
-              doc(db, "stores", storeId),
-              {
-                name: "Blgasm POS Store",
-                address: "",
-                phone: "",
-                currency: "DZD",
-                taxRate: 0,
-                createdAt: serverTimestamp(),
-              },
-              { merge: true }
-            );
-            setAppUser({ uid: firebaseUser.uid, ...newUser });
-          }
-        } catch {
-          setAppUser(null);
+
+      if (!firebaseUser) {
+        if (isAutoLoginEnabled() && !autoLoginStarted) {
+          autoLoginStarted = true;
+          signInAutomatically().catch((err) => {
+            console.warn("Automatic sign-in failed:", err);
+            if (active) {
+              setAppUser(null);
+              setLoading(false);
+            }
+          });
+          return;
         }
-      } else {
+
         setAppUser(null);
+        setLoading(false);
+        return;
       }
+
+      setAppUser(createFallbackAppUser(firebaseUser));
       setLoading(false);
+
+      loadAppUser(firebaseUser)
+        .then((loadedUser) => {
+          if (active && auth.currentUser?.uid === firebaseUser.uid) {
+            setAppUser(loadedUser);
+          }
+        })
+        .catch((err) => {
+          console.warn("Failed to load Firestore user profile:", err);
+        });
     });
 
     return () => {
+      active = false;
       clearTimeout(timeout);
       unsub();
     };

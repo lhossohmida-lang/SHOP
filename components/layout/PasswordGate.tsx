@@ -7,7 +7,9 @@ interface PasswordGateProps {
 }
 
 export default function PasswordGate({ children }: PasswordGateProps) {
-  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [isUnlocked, setIsUnlocked] = useState(
+    process.env.NEXT_PUBLIC_AUTO_UNLOCK === "1"
+  );
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(false);

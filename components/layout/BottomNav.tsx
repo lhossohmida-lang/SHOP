@@ -5,16 +5,22 @@ import {
   LayoutDashboard,
   ShoppingCart,
   Boxes,
+  Package,
+  ClipboardList,
   CreditCard,
   BarChart3,
+  Sparkles,
 } from "lucide-react";
 
 const navItems = [
   { href: "/dashboard", label: "الرئيسية", icon: LayoutDashboard },
   { href: "/pos", label: "البيع", icon: ShoppingCart },
   { href: "/inventory", label: "المخزون", icon: Boxes },
+  { href: "/products", label: "المنتجات", icon: Package },
+  { href: "/purchases", label: "المشتريات", icon: ClipboardList },
   { href: "/credits", label: "الديون", icon: CreditCard },
   { href: "/reports", label: "التقارير", icon: BarChart3 },
+  { href: "/ai", label: "الذكاء", icon: Sparkles },
 ];
 
 export default function BottomNav() {
@@ -27,14 +33,19 @@ export default function BottomNav() {
         bottom: 0,
         left: 0,
         right: 0,
-        height: "64px",
+        height: "66px",
         background: "white",
         borderTop: "1px solid #e5e7eb",
         display: "flex",
         alignItems: "center",
-        justifyContent: "space-around",
+        justifyContent: "flex-start",
+        gap: "0.25rem",
+        overflowX: "auto",
+        overflowY: "hidden",
+        padding: "0 0.5rem",
         boxShadow: "0 -4px 20px rgba(23,35,28,0.08)",
         zIndex: 40,
+        WebkitOverflowScrolling: "touch",
       }}
     >
       {navItems.map(({ href, label, icon: Icon }) => {
@@ -47,16 +58,21 @@ export default function BottomNav() {
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
+              justifyContent: "center",
               gap: "2px",
-              padding: "0.375rem 0.75rem",
+              flex: "0 0 72px",
+              minWidth: "72px",
+              height: "56px",
+              padding: "0.25rem",
               borderRadius: "0.5rem",
               textDecoration: "none",
               color: isActive ? "#49a35c" : "#9ca3af",
-              transition: "color 0.15s",
+              background: isActive ? "#f1f8ee" : "transparent",
+              transition: "color 0.15s, background 0.15s",
             }}
           >
-            <Icon size={22} />
-            <span style={{ fontSize: "0.65rem", fontWeight: isActive ? 600 : 400 }}>
+            <Icon size={20} />
+            <span style={{ fontSize: "0.65rem", fontWeight: isActive ? 700 : 500, whiteSpace: "nowrap" }}>
               {label}
             </span>
           </Link>

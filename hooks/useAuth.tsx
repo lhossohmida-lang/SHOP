@@ -3,7 +3,6 @@ import { useState, useEffect, createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import {
   onAuthStateChanged,
-  signInAnonymously,
   signInWithEmailAndPassword,
   signOut,
   type User,
@@ -32,49 +31,13 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
-function isAutoLoginEnabled() {
-  return process.env.NEXT_PUBLIC_AUTO_LOGIN === "1";
-}
-
-function getLocalStoreId() {
-  return process.env.NEXT_PUBLIC_LOCAL_STORE_ID?.trim() || "local-store";
-}
-
-function createLocalAuthUser(): User {
-  const uid = getLocalStoreId();
-
-  return {
-    uid,
-    email: "local@blgasm.pos",
-    displayName: "Blgasm POS",
-    isAnonymous: true,
-  } as User;
-}
-
-function createLocalAppUser(): AppUser {
-  const uid = getLocalStoreId();
-
-  return {
-    uid,
-    email: "local@blgasm.pos",
-    displayName: "Blgasm POS",
-    role: "admin",
-    storeId: uid,
-    isActive: true,
-    createdAt: new Date(),
-  };
-}
-
 async function signInAutomatically() {
   const email = process.env.NEXT_PUBLIC_AUTO_LOGIN_EMAIL?.trim();
   const password = process.env.NEXT_PUBLIC_AUTO_LOGIN_PASSWORD?.trim();
 
   if (email && password) {
     await signInWithEmailAndPassword(auth, email, password);
-    return;
   }
-
-  await signInAnonymously(auth);
 }
 
 function getDisplayName(firebaseUser: User) {
@@ -146,19 +109,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     let autoLoginStarted = false;
-    const useLocalSession = () => {
-      setUser(createLocalAuthUser());
-      setAppUser(createLocalAppUser());
-      setLoading(false);
-    };
-
     const timeout = setTimeout(() => {
-      if (!active) return;
-      if (isAutoLoginEnabled()) {
-        useLocalSession();
-      } else {
-        setLoading(false);
-      }
+      if (active) setLoading(false);
     }, 10000);
 
     const unsub = onAuthStateChanged(auth, (firebaseUser) => {
@@ -168,24 +120,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(firebaseUser);
 
       if (!firebaseUser) {
-        if (isAutoLoginEnabled() && !autoLoginStarted) {
+        const hasAutoLoginCredentials =
+          !!process.env.NEXT_PUBLIC_AUTO_LOGIN_EMAIL?.trim() &&
+          !!process.env.NEXT_PUBLIC_AUTO_LOGIN_PASSWORD?.trim();
+
+        if (hasAutoLoginCredentials && !autoLoginStarted) {
           autoLoginStarted = true;
-          useLocalSession();
           signInAutomatically().catch((err) => {
             console.warn("Automatic sign-in failed:", err);
             if (active) {
-              useLocalSession();
+              setAppUser(null);
+              setLoading(false);
             }
           });
           return;
         }
 
-        if (isAutoLoginEnabled()) {
-          useLocalSession();
-        } else {
-          setAppUser(null);
-          setLoading(false);
-        }
+        setAppUser(null);
+        setLoading(false);
+        return;
+      }
+
+      if (firebaseUser.isAnonymous && !firebaseUser.email) {
+        signOut(auth).catch((err) => {
+          console.warn("Failed to clear anonymous Firebase session:", err);
+        });
+        setUser(null);
+        setAppUser(null);
+        setLoading(false);
         return;
       }
 

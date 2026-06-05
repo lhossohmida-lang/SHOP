@@ -121,6 +121,7 @@ function prepareStandalone(nextRoot) {
 
 function findStandaloneRoot() {
   const candidates = [
+    path.join(process.resourcesPath, "app.asar.unpacked", ".next", "standalone"),
     path.join(process.resourcesPath, "app", ".next", "standalone"),
     path.join(__dirname, "..", ".next", "standalone"),
   ];

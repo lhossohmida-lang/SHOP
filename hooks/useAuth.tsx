@@ -36,6 +36,35 @@ function isAutoLoginEnabled() {
   return process.env.NEXT_PUBLIC_AUTO_LOGIN === "1";
 }
 
+function getLocalStoreId() {
+  return process.env.NEXT_PUBLIC_LOCAL_STORE_ID?.trim() || "local-store";
+}
+
+function createLocalAuthUser(): User {
+  const uid = getLocalStoreId();
+
+  return {
+    uid,
+    email: "local@blgasm.pos",
+    displayName: "Blgasm POS",
+    isAnonymous: true,
+  } as User;
+}
+
+function createLocalAppUser(): AppUser {
+  const uid = getLocalStoreId();
+
+  return {
+    uid,
+    email: "local@blgasm.pos",
+    displayName: "Blgasm POS",
+    role: "admin",
+    storeId: uid,
+    isActive: true,
+    createdAt: new Date(),
+  };
+}
+
 async function signInAutomatically() {
   const email = process.env.NEXT_PUBLIC_AUTO_LOGIN_EMAIL?.trim();
   const password = process.env.NEXT_PUBLIC_AUTO_LOGIN_PASSWORD?.trim();
@@ -117,8 +146,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     let autoLoginStarted = false;
+    const useLocalSession = () => {
+      setUser(createLocalAuthUser());
+      setAppUser(createLocalAppUser());
+      setLoading(false);
+    };
+
     const timeout = setTimeout(() => {
-      if (active) setLoading(false);
+      if (!active) return;
+      if (isAutoLoginEnabled()) {
+        useLocalSession();
+      } else {
+        setLoading(false);
+      }
     }, 10000);
 
     const unsub = onAuthStateChanged(auth, (firebaseUser) => {
@@ -130,18 +170,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!firebaseUser) {
         if (isAutoLoginEnabled() && !autoLoginStarted) {
           autoLoginStarted = true;
+          useLocalSession();
           signInAutomatically().catch((err) => {
             console.warn("Automatic sign-in failed:", err);
             if (active) {
-              setAppUser(null);
-              setLoading(false);
+              useLocalSession();
             }
           });
           return;
         }
 
-        setAppUser(null);
-        setLoading(false);
+        if (isAutoLoginEnabled()) {
+          useLocalSession();
+        } else {
+          setAppUser(null);
+          setLoading(false);
+        }
         return;
       }
 

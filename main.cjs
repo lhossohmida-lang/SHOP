@@ -5,6 +5,7 @@ const fs = require("fs");
 const { fork } = require("child_process");
 
 let serverProcess = null;
+
 let mainWindow = null;
 
 function log(message, error) {
@@ -20,20 +21,18 @@ function log(message, error) {
 }
 
 function readEnvFile(envFile) {
-  if (!fs.existsSync(envFile)) return {};
+  if (!fs.existsSync(envFile)) return;
 
-  const result = {};
   const lines = fs.readFileSync(envFile, "utf8").split(/\r?\n/);
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
 
     const [key, ...rest] = trimmed.split("=");
-    if (key && rest.length > 0) {
-      result[key.trim()] = rest.join("=").trim();
+    if (key && rest.length > 0 && process.env[key.trim()] === undefined) {
+      process.env[key.trim()] = rest.join("=").trim();
     }
   }
-  return result;
 }
 
 function injectEnv() {
@@ -43,14 +42,11 @@ function injectEnv() {
   ];
 
   for (const envFile of candidates) {
-    const vars = readEnvFile(envFile);
-    for (const [key, val] of Object.entries(vars)) {
-      if (process.env[key] === undefined) process.env[key] = val;
-    }
+    readEnvFile(envFile);
   }
 }
 
-function waitForServer(url, retries = 120, delay = 300) {
+function waitForServer(url, retries = 80, delay = 250) {
   return new Promise((resolve, reject) => {
     const attempt = () => {
       http
@@ -107,15 +103,11 @@ function findStandaloneRoot() {
     path.join(__dirname, "..", ".next", "standalone"),
   ];
 
-  for (const candidate of candidates) {
-    const serverJs = path.join(candidate, "server.js");
-    const nextPkg = path.join(candidate, "node_modules", "next");
-    log(`Checking standalone candidate: ${candidate} | server.js: ${fs.existsSync(serverJs)} | next: ${fs.existsSync(nextPkg)}`);
-    if (fs.existsSync(serverJs) && fs.existsSync(nextPkg)) {
-      return candidate;
-    }
-  }
-  return null;
+  return candidates.find(
+    (candidate) =>
+      fs.existsSync(path.join(candidate, "server.js")) &&
+      fs.existsSync(path.join(candidate, "node_modules", "next"))
+  );
 }
 
 function loadStartupError(error) {
@@ -175,10 +167,7 @@ async function startNextServer() {
 
   const nextRoot = findStandaloneRoot();
   if (!nextRoot) {
-    throw new Error(
-      "Standalone Next.js build was not found in the packaged app.\n" +
-      "Expected: resources/app/.next/standalone/server.js + node_modules/next"
-    );
+    throw new Error("Standalone Next.js build was not found in the packaged app.");
   }
 
   prepareStandalone(nextRoot);
@@ -187,36 +176,46 @@ async function startNextServer() {
   const serverPath = path.join(nextRoot, "server.js");
   const standaloneNodeModules = path.join(nextRoot, "node_modules");
 
-  log(`Starting local Next.js server via fork: ${serverPath} on port ${port}`);
-  log(`standalone node_modules: ${standaloneNodeModules}`);
-
-  // Build child env - merge all env sources
-  const envCandidates = [
-    path.join(process.resourcesPath, "app", ".env.production"),
-    path.join(nextRoot, "..", "..", ".env.production"),
-    path.join(nextRoot, ".env.production"),
-  ];
-
-  const childEnv = {
-    ...process.env,
-    NODE_ENV: "production",
-    PORT: String(port),
-    HOSTNAME: "127.0.0.1",
-    // Ensure standalone node_modules takes priority for module resolution
-    NODE_PATH: standaloneNodeModules,
-  };
-
-  for (const envFile of envCandidates) {
-    const vars = readEnvFile(envFile);
-    for (const [key, val] of Object.entries(vars)) {
-      if (childEnv[key] === undefined) childEnv[key] = val;
-    }
-  }
+  log(`Starting local Next.js server from ${serverPath} on port ${port}`);
 
   await new Promise((resolve, reject) => {
+    // Read env file candidates so child process inherits them
+    const envCandidates = [
+      path.join(process.resourcesPath, "app", ".env.production"),
+      path.join(nextRoot, "..", "..", ".env.production"),
+      path.join(nextRoot, ".env.production"),
+    ];
+
+    const childEnv = {
+      ...process.env,
+      NODE_ENV: "production",
+      PORT: String(port),
+      HOSTNAME: "127.0.0.1",
+      // Ensure standalone node_modules takes priority for module resolution
+      NODE_PATH: standaloneNodeModules,
+    };
+
+    // Inject env file values into child env
+    for (const envFile of envCandidates) {
+      if (!fs.existsSync(envFile)) continue;
+      const lines = fs.readFileSync(envFile, "utf8").split(/\r?\n/);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const [key, ...rest] = trimmed.split("=");
+        if (key && rest.length > 0 && childEnv[key.trim()] === undefined) {
+          childEnv[key.trim()] = rest.join("=").trim();
+        }
+      }
+    }
+
     serverProcess = fork(serverPath, [], {
       cwd: nextRoot,
       env: childEnv,
+      // Use the standalone node_modules for resolution
+      execArgv: ["--require", "module"].concat(
+        [`--experimental-loader`].length ? [] : []
+      ),
       stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
 
@@ -239,7 +238,7 @@ async function startNextServer() {
       }
     });
 
-    // Don't wait for server here — poll via waitForServer below
+    // Resolve once server is ready (we'll poll via waitForServer)
     resolve();
   });
 

@@ -30,11 +30,14 @@ export default function PosSummary({
   const isCash = mode === "cash";
 
   return (
-    <div style={{
-      width: "280px", flexShrink: 0, background: "white",
-      borderRadius: "1rem", boxShadow: "0 4px 20px rgba(23,35,28,0.07)",
-      display: "flex", flexDirection: "column", overflow: "hidden",
-    }}>
+    <div
+      className="w-full lg:w-[280px]"
+      style={{
+        flexShrink: 0, background: "white",
+        borderRadius: "1rem", boxShadow: "0 4px 20px rgba(23,35,28,0.07)",
+        display: "flex", flexDirection: "column", overflow: "hidden",
+      }}
+    >
       {/* Header */}
       <div style={{
         padding: "1rem 1.25rem",

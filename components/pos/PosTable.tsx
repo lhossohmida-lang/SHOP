@@ -15,7 +15,7 @@ export default function PosTable({ lines, mode, onQty, onRemove }: Props) {
     mode === "cash" ? l.purchasePrice : l.sellingPrice;
 
   return (
-    <div style={{ overflowX: "auto", flex: 1 }}>
+    <div style={{ overflow: "auto", flex: 1 }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
         <thead>
           <tr style={{ background: "linear-gradient(135deg,#f1f8ee,#e8f5e2)", textAlign: "right" }}>

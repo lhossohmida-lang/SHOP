@@ -35,6 +35,7 @@ export default function PosPage() {
   const [showCreditPanel, setShowCreditPanel] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: string; name: string; totalDebt: number; creditLimit: number } | null>(null);
   const [custSearch, setCustSearch] = useState("");
+  const [activeMobileTab, setActiveMobileTab] = useState<"cart" | "checkout">("cart");
 
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -150,6 +151,7 @@ export default function PosPage() {
       printReceipt({ ...saleData, id: saleId, createdAt: new Date() });
       cart.clearCart();
       setSelectedCustomer(null);
+      setActiveMobileTab("cart");
       showMsg(`✅ تم البيع — ${receiptNumber}`);
     } catch (e) {
       showMsg("❌ خطأ: " + e);
@@ -181,30 +183,51 @@ export default function PosPage() {
       )}
 
       {/* Top: Search bar + mode tabs */}
-      <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-        {/* Mode tabs */}
-        <div style={{ display: "flex", borderRadius: "0.625rem", overflow: "hidden", border: "1px solid #e5e7eb", flexShrink: 0 }}>
-          {(["cash", "credit"] as const).map(m => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              style={{
-                padding: "0.6rem 1.1rem", border: "none", cursor: "pointer",
-                fontWeight: mode === m ? 700 : 400, fontSize: "0.85rem",
-                background: mode === m
-                  ? m === "cash" ? "#26683a" : "#ca8a04"
-                  : "white",
-                color: mode === m ? "white" : "#6b7280",
-                transition: "all 0.15s",
-              }}
-            >
-              {m === "cash" ? "💵 بيع نقدي" : "📋 بيع كريدي"}
+      <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
+        {/* Mode & Action buttons grouped for mobile layout */}
+        <div className="flex flex-wrap gap-2 items-center justify-between md:justify-start shrink-0">
+          {/* Mode tabs */}
+          <div style={{ display: "flex", borderRadius: "0.625rem", overflow: "hidden", border: "1px solid #e5e7eb" }}>
+            {(["cash", "credit"] as const).map(m => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                style={{
+                  padding: "0.6rem 1.1rem", border: "none", cursor: "pointer",
+                  fontWeight: mode === m ? 700 : 400, fontSize: "0.85rem",
+                  background: mode === m
+                    ? m === "cash" ? "#26683a" : "#ca8a04"
+                    : "white",
+                  color: mode === m ? "white" : "#6b7280",
+                  transition: "all 0.15s",
+                }}
+              >
+                {m === "cash" ? "💵 بيع نقدي" : "📋 بيع كريدي"}
+              </button>
+            ))}
+          </div>
+
+          {/* Action buttons (Camera, USB, Clear) */}
+          <div className="flex gap-1.5 items-center">
+            <button onClick={() => setShowCamera(true)}
+              style={{ padding: "0.6rem 0.875rem", borderRadius: "0.5rem", border: "1px solid #c5e5b8", background: "#f1f8ee", color: "#26683a", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.82rem", fontWeight: 500, whiteSpace: "nowrap" }}>
+              <Camera size={17} /> كاميرا
             </button>
-          ))}
+            <button onClick={() => searchRef.current?.focus()}
+              style={{ padding: "0.6rem 0.875rem", borderRadius: "0.5rem", border: "1px solid #e5e7eb", background: "#f9fafb", color: "#6b7280", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.82rem", whiteSpace: "nowrap" }}>
+              <ScanLine size={17} /> USB
+            </button>
+            {cart.lines.length > 0 && (
+              <button onClick={cart.clearCart}
+                style={{ padding: "0.6rem 0.875rem", borderRadius: "0.5rem", border: "1px solid #fca5a5", background: "#fef2f2", color: "#dc2626", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.82rem", whiteSpace: "nowrap" }}>
+                <Trash2 size={15} /> مسح الكل
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Search */}
-        <div style={{ position: "relative", flex: 1 }}>
+        <div className="relative flex-1">
           <Search size={17} style={{
             position: "absolute", right: "0.75rem", top: "50%",
             transform: "translateY(-50%)", color: "#9ca3af", pointerEvents: "none"
@@ -262,22 +285,6 @@ export default function PosPage() {
             </div>
           )}
         </div>
-
-        {/* Camera + USB */}
-        <button onClick={() => setShowCamera(true)}
-          style={{ padding: "0.6rem 0.875rem", borderRadius: "0.5rem", border: "1px solid #c5e5b8", background: "#f1f8ee", color: "#26683a", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.82rem", fontWeight: 500, whiteSpace: "nowrap" }}>
-          <Camera size={17} /> كاميرا
-        </button>
-        <button onClick={() => searchRef.current?.focus()}
-          style={{ padding: "0.6rem 0.875rem", borderRadius: "0.5rem", border: "1px solid #e5e7eb", background: "#f9fafb", color: "#6b7280", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.82rem", whiteSpace: "nowrap" }}>
-          <ScanLine size={17} /> USB
-        </button>
-        {cart.lines.length > 0 && (
-          <button onClick={cart.clearCart}
-            style={{ padding: "0.6rem 0.875rem", borderRadius: "0.5rem", border: "1px solid #fca5a5", background: "#fef2f2", color: "#dc2626", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.82rem", whiteSpace: "nowrap" }}>
-            <Trash2 size={15} /> مسح الكل
-          </button>
-        )}
       </div>
 
       {/* Credit customer bar (when credit mode) */}
@@ -298,12 +305,40 @@ export default function PosPage() {
         </div>
       )}
 
+      {/* Mobile Tab Switcher */}
+      <div className="flex lg:hidden border border-gray-200 bg-white rounded-xl p-1 gap-1">
+        <button
+          onClick={() => setActiveMobileTab("cart")}
+          style={{ transition: "all 0.2s" }}
+          className={`flex-1 py-2 text-center rounded-lg text-xs font-bold ${
+            activeMobileTab === "cart"
+              ? "bg-[#26683a] text-white shadow-sm"
+              : "text-gray-600 hover:bg-gray-50"
+          }`}
+        >
+          🛒 الفاتورة ({cart.lines.length} صنف)
+        </button>
+        <button
+          onClick={() => setActiveMobileTab("checkout")}
+          style={{ transition: "all 0.2s" }}
+          className={`flex-1 py-2 text-center rounded-lg text-xs font-bold ${
+            activeMobileTab === "checkout"
+              ? "bg-[#26683a] text-white shadow-sm"
+              : "text-gray-600 hover:bg-gray-50"
+          }`}
+        >
+          💰 الدفع ({mode === "cash" ? cart.buyTotal : cart.sellTotal} د.ج)
+        </button>
+      </div>
+
       {/* Main area: table + summary */}
       <div style={{ display: "flex", gap: "0.75rem", flex: 1, overflow: "hidden" }}>
 
         {/* Left: table */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.5rem", overflow: "hidden" }}>
-
+        <div 
+          className={`${activeMobileTab === "cart" ? "flex" : "hidden lg:flex"}`}
+          style={{ flex: 1, flexDirection: "column", gap: "0.5rem", overflow: "hidden" }}
+        >
           {/* Products table */}
           <div style={{
             flex: 1, background: "white", borderRadius: "1rem",
@@ -325,25 +360,45 @@ export default function PosPage() {
               onQty={cart.updateQty}
               onRemove={cart.removeLine}
             />
+
+            {/* Mobile-only go to checkout sticky button */}
+            {cart.lines.length > 0 && (
+              <div className="lg:hidden p-3 bg-white border-t border-gray-100 flex items-center justify-between">
+                <div>
+                  <div className="text-[10px] text-gray-500">إجمالي الفاتورة</div>
+                  <div className="text-md font-extrabold text-[#26683a]">
+                    {mode === "cash" ? cart.buyTotal : cart.sellTotal} د.ج
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveMobileTab("checkout")}
+                  className="bg-[#26683a] text-white px-4 py-2 rounded-xl font-bold text-xs shadow-md flex items-center gap-1.5"
+                >
+                  الذهاب للدفع 💰
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Summary panel */}
-        <PosSummary
-          mode={mode}
-          subtotal={mode === "cash" ? cart.buySubtotal : cart.sellSubtotal}
-          total={mode === "cash" ? cart.buyTotal : cart.sellTotal}
-          discount={cart.effectiveDiscount}
-          discountValue={cart.discountValue}
-          discountPct={cart.discountPct}
-          itemCount={cart.itemCount}
-          onDiscountValue={cart.setDiscountValue}
-          onDiscountPct={cart.setDiscountPct}
-          onClear={cart.clearCart}
-          onConfirm={handleConfirm}
-          loading={loading}
-          disabled={cart.lines.length === 0}
-        />
+        <div className={`shrink-0 w-full lg:w-auto ${activeMobileTab === "checkout" ? "flex" : "hidden lg:flex"}`}>
+          <PosSummary
+            mode={mode}
+            subtotal={mode === "cash" ? cart.buySubtotal : cart.sellSubtotal}
+            total={mode === "cash" ? cart.buyTotal : cart.sellTotal}
+            discount={cart.effectiveDiscount}
+            discountValue={cart.discountValue}
+            discountPct={cart.discountPct}
+            itemCount={cart.itemCount}
+            onDiscountValue={cart.setDiscountValue}
+            onDiscountPct={cart.setDiscountPct}
+            onClear={cart.clearCart}
+            onConfirm={handleConfirm}
+            loading={loading}
+            disabled={cart.lines.length === 0}
+          />
+        </div>
       </div>
 
       {/* Credit Customer Selection Panel */}

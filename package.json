@@ -56,7 +56,10 @@
     "extraResources": [
       {
         "from": ".next/standalone",
-        "to": "app/.next/standalone"
+        "to": "app/.next/standalone",
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": ".next/static",

@@ -8,9 +8,9 @@ import {
 } from "@/lib/firestore/credits";
 import { getSale } from "@/lib/firestore/sales";
 import { formatCurrency } from "@/lib/utils/currency";
-import { formatDateTime } from "@/lib/utils/date";
+import { formatDate, formatDateTime } from "@/lib/utils/date";
 import { printCustomerStatement } from "@/lib/utils/print";
-import { Plus, X, Search, CreditCard, Phone, ChevronDown, ChevronUp, Calendar, Trash2, Printer } from "lucide-react";
+import { Plus, X, Search, CreditCard, Phone, Calendar, Trash2, Printer } from "lucide-react";
 import type { CreditCustomer, CreditTransaction } from "@/types/credit";
 
 interface CreditTransactionWithItems extends CreditTransaction {
@@ -38,7 +38,7 @@ export default function CreditsPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<CreditCustomer | null>(null);
   const [transactions, setTransactions] = useState<CreditTransactionWithItems[]>([]);
   const [loadingTx, setLoadingTx] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [detailCustomer, setDetailCustomer] = useState<CreditCustomer | null>(null);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -111,7 +111,7 @@ export default function CreditsPage() {
   const handlePrintStatement = async (c: CreditCustomer) => {
     if (!storeId) return;
     let txsToPrint = transactions;
-    if (expandedId !== c.id) {
+    if (detailCustomer?.id !== c.id) {
       setLoadingTx(true);
       setErrorMsg("");
       try {
@@ -129,9 +129,8 @@ export default function CreditsPage() {
     printCustomerStatement(c, txsToPrint);
   };
 
-  const toggleExpand = async (c: CreditCustomer) => {
-    if (expandedId === c.id) { setExpandedId(null); return; }
-    setExpandedId(c.id);
+  const openCustomerDetail = async (c: CreditCustomer) => {
+    setDetailCustomer(c);
     await loadTransactions(c);
   };
 
@@ -259,7 +258,16 @@ export default function CreditsPage() {
         ) : filtered.map((c) => (
           <div key={c.id} className="card-sm" style={{ border: c.totalDebt > c.creditLimit ? "1px solid #fca5a5" : "1px solid #e5e7eb" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+              <button
+                type="button"
+                onClick={() => openCustomerDetail(c)}
+                style={{
+                  display: "flex", gap: "0.75rem", alignItems: "center",
+                  background: "none", border: "none", cursor: "pointer", padding: 0,
+                  textAlign: "right", flex: 1, minWidth: 0,
+                }}
+                title="عرض معلومات العميل وسجل المشتريات"
+              >
                 <div style={{
                   width: "42px", height: "42px", borderRadius: "50%",
                   background: "linear-gradient(135deg, #49a35c, #26683a)",
@@ -291,7 +299,7 @@ export default function CreditsPage() {
                     )}
                   </div>
                 </div>
-              </div>
+              </button>
               <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
                 <div style={{ textAlign: "left" }}>
                   <div style={{ fontWeight: 700, fontSize: "1rem", color: c.totalDebt > 0 ? "#dc2626" : "#26683a" }}>
@@ -318,80 +326,8 @@ export default function CreditsPage() {
                 >
                   <Trash2 size={14} />
                 </button>
-                <button onClick={() => toggleExpand(c)} className="btn-secondary" style={{ padding: "0.375rem 0.5rem" }}>
-                  {expandedId === c.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                </button>
               </div>
             </div>
-
-            {expandedId === c.id && (
-              <div style={{ marginTop: "0.875rem", borderTop: "1px solid #f3f4f6", paddingTop: "0.875rem" }}>
-                {loadingTx ? (
-                  <p style={{ textAlign: "center", color: "#9ca3af", fontSize: "0.875rem" }}>جارٍ التحميل...</p>
-                ) : transactions.length === 0 ? (
-                  <p style={{ textAlign: "center", color: "#9ca3af", fontSize: "0.875rem" }}>لا توجد معاملات</p>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
-                    {transactions.map((tx) => (
-                      <div key={tx.id} style={{
-                        display: "flex", justifyContent: "space-between", alignItems: "flex-start",
-                        padding: "0.5rem", borderRadius: "0.375rem",
-                        background: tx.type === "payment" ? "#f0fdf4" : "#fff5f5",
-                      }}>
-                        <div>
-                          <div>
-                            <span className={tx.type === "payment" ? "badge-green" : "badge-red"} style={{ fontSize: "0.7rem" }}>
-                              {tx.type === "payment" ? "دفعة" : tx.type === "purchase" ? "شراء" : "تعديل"}
-                            </span>
-                            <span style={{ fontSize: "0.75rem", color: "#374151", marginRight: "0.5rem", fontWeight: "600" }}>
-                              📅 وقت العملية: {formatDateTime(tx.createdAt)}
-                            </span>
-                            {tx.note && <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}> — {tx.note}</span>}
-                          </div>
-                          {/* List detailed products taken */}
-                          {tx.saleItems && tx.saleItems.length > 0 && (
-                            <div style={{ marginTop: "0.4rem", paddingRight: "0.5rem", borderRight: "2px solid #e5e7eb", display: "flex", flexDirection: "column", gap: "4px" }}>
-                              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                                <span style={{ fontSize: "0.7rem", fontWeight: "bold", color: "#6b7280" }}>السلع المشتراة:</span>
-                                <button
-                                  onClick={async () => {
-                                    if (tx.saleId && storeId) {
-                                      const sale = await getSale(storeId, tx.saleId);
-                                      if (sale) {
-                                        const { printReceipt } = await import("@/lib/utils/print");
-                                        printReceipt(sale);
-                                      }
-                                    }
-                                  }}
-                                  style={{
-                                    background: "none", border: "none", color: "#2563eb", cursor: "pointer",
-                                    fontSize: "0.68rem", textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: "2px",
-                                    padding: 0
-                                  }}
-                                >
-                                  🖨️ طباعة الوصل الأصلي
-                                </button>
-                              </div>
-                              {tx.saleItems.map((item, idx) => (
-                                <span key={idx} style={{ fontSize: "0.72rem", color: "#4b5563" }}>
-                                  📦 {item.productName} ({item.quantity} × {formatCurrency(item.unitPrice)}) = <strong style={{ color: "#111827" }}>{formatCurrency(item.totalPrice)}</strong>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ textAlign: "left" }}>
-                          <div style={{ fontWeight: 700, fontSize: "0.85rem", color: tx.type === "payment" ? "#26683a" : "#dc2626" }}>
-                            {tx.type === "payment" ? "-" : "+"}{formatCurrency(tx.amount)}
-                          </div>
-                          <div style={{ fontSize: "0.68rem", color: "#6b7280" }}>رصيد: {formatCurrency(tx.balanceAfter)}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         ))}
       </div>
@@ -465,6 +401,141 @@ export default function CreditsPage() {
               <button onClick={() => setShowPayment(false)} className="btn-secondary" style={{ flex: 1, justifyContent: "center" }}>إلغاء</button>
               <button onClick={handlePayment} disabled={saving || !payAmount || Number(payAmount) <= 0} className="btn-primary" style={{ flex: 2, justifyContent: "center" }}>
                 {saving ? "جارٍ الحفظ..." : "تأكيد الدفعة"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Detail Modal */}
+      {detailCustomer && (
+        <div className="modal-overlay" onClick={() => setDetailCustomer(null)}>
+          <div
+            className="card animate-slide-up"
+            style={{ width: "100%", maxWidth: "560px", maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem" }}>
+              <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+                <div style={{
+                  width: "48px", height: "48px", borderRadius: "50%",
+                  background: "linear-gradient(135deg, #49a35c, #26683a)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  color: "white", fontWeight: 700, fontSize: "1.1rem", flexShrink: 0,
+                }}>
+                  {detailCustomer.name.charAt(0)}
+                </div>
+                <div>
+                  <h2 style={{ fontWeight: 700, fontSize: "1.15rem" }}>{detailCustomer.name}</h2>
+                  <div style={{ fontSize: "0.8rem", color: "#6b7280", display: "flex", alignItems: "center", gap: "0.25rem", marginTop: "0.15rem" }}>
+                    <Phone size={13} /> {detailCustomer.phone || "—"}
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => setDetailCustomer(null)} style={{ background: "none", border: "none", cursor: "pointer" }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{
+              display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.625rem",
+              background: "#f8fdf5", borderRadius: "0.75rem", padding: "0.875rem",
+              border: "1px solid #c5e5b8", marginBottom: "1rem", fontSize: "0.82rem",
+            }}>
+              <div><span style={{ color: "#6b7280" }}>العنوان:</span> {detailCustomer.address || "—"}</div>
+              <div><span style={{ color: "#6b7280" }}>حد الائتمان:</span> {formatCurrency(detailCustomer.creditLimit)}</div>
+              <div>
+                <span style={{ color: "#6b7280" }}>الدين الحالي:</span>{" "}
+                <strong style={{ color: detailCustomer.totalDebt > 0 ? "#dc2626" : "#26683a" }}>
+                  {formatCurrency(detailCustomer.totalDebt)}
+                </strong>
+              </div>
+              <div>
+                <span style={{ color: "#6b7280" }}>تاريخ الاستحقاق:</span>{" "}
+                {detailCustomer.dueDate || "—"}
+              </div>
+              <div><span style={{ color: "#6b7280" }}>تاريخ التسجيل:</span> {formatDate(detailCustomer.createdAt)}</div>
+              <div><span style={{ color: "#6b7280" }}>آخر عملية:</span> {formatDateTime(detailCustomer.lastTransactionAt)}</div>
+            </div>
+
+            <h3 style={{ fontWeight: 700, fontSize: "0.95rem", marginBottom: "0.625rem" }}>سجل المشتريات والمعاملات</h3>
+            <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
+              {loadingTx ? (
+                <p style={{ textAlign: "center", color: "#9ca3af", fontSize: "0.875rem", padding: "1.5rem" }}>جارٍ التحميل...</p>
+              ) : transactions.length === 0 ? (
+                <p style={{ textAlign: "center", color: "#9ca3af", fontSize: "0.875rem", padding: "1.5rem" }}>لا توجد معاملات</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
+                  {transactions.map((tx) => (
+                    <div key={tx.id} style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+                      padding: "0.5rem", borderRadius: "0.375rem",
+                      background: tx.type === "payment" ? "#f0fdf4" : "#fff5f5",
+                    }}>
+                      <div>
+                        <div>
+                          <span className={tx.type === "payment" ? "badge-green" : "badge-red"} style={{ fontSize: "0.7rem" }}>
+                            {tx.type === "payment" ? "دفعة" : tx.type === "purchase" ? "شراء" : "تعديل"}
+                          </span>
+                          <span style={{ fontSize: "0.75rem", color: "#374151", marginRight: "0.5rem", fontWeight: "600" }}>
+                            {formatDateTime(tx.createdAt)}
+                          </span>
+                          {tx.note && <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}> — {tx.note}</span>}
+                        </div>
+                        {tx.saleItems && tx.saleItems.length > 0 && (
+                          <div style={{ marginTop: "0.4rem", paddingRight: "0.5rem", borderRight: "2px solid #e5e7eb", display: "flex", flexDirection: "column", gap: "4px" }}>
+                            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                              <span style={{ fontSize: "0.7rem", fontWeight: "bold", color: "#6b7280" }}>السلع المشتراة:</span>
+                              <button
+                                onClick={async () => {
+                                  if (tx.saleId && storeId) {
+                                    const sale = await getSale(storeId, tx.saleId);
+                                    if (sale) {
+                                      const { printReceipt } = await import("@/lib/utils/print");
+                                      printReceipt(sale);
+                                    }
+                                  }
+                                }}
+                                style={{
+                                  background: "none", border: "none", color: "#2563eb", cursor: "pointer",
+                                  fontSize: "0.68rem", textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: "2px",
+                                  padding: 0
+                                }}
+                              >
+                                طباعة الوصل
+                              </button>
+                            </div>
+                            {tx.saleItems.map((item, idx) => (
+                              <span key={idx} style={{ fontSize: "0.72rem", color: "#4b5563" }}>
+                                {item.productName} ({item.quantity} × {formatCurrency(item.unitPrice)}) ={" "}
+                                <strong style={{ color: "#111827" }}>{formatCurrency(item.totalPrice)}</strong>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ textAlign: "left", flexShrink: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: "0.85rem", color: tx.type === "payment" ? "#26683a" : "#dc2626" }}>
+                          {tx.type === "payment" ? "-" : "+"}{formatCurrency(tx.amount)}
+                        </div>
+                        <div style={{ fontSize: "0.68rem", color: "#6b7280" }}>رصيد: {formatCurrency(tx.balanceAfter)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: "0.75rem", marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid #f3f4f6" }}>
+              <button
+                onClick={() => handlePrintStatement(detailCustomer)}
+                className="btn-secondary"
+                style={{ flex: 1, justifyContent: "center" }}
+              >
+                <Printer size={14} /> طباعة الكشف
+              </button>
+              <button onClick={() => setDetailCustomer(null)} className="btn-primary" style={{ flex: 1, justifyContent: "center" }}>
+                إغلاق
               </button>
             </div>
           </div>

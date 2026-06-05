@@ -331,7 +331,7 @@ export default function CreditsPage() {
                   <p style={{ textAlign: "center", color: "#9ca3af", fontSize: "0.875rem" }}>لا توجد معاملات</p>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
-                    {transactions.slice(0, 20).map((tx) => (
+                    {transactions.map((tx) => (
                       <div key={tx.id} style={{
                         display: "flex", justifyContent: "space-between", alignItems: "flex-start",
                         padding: "0.5rem", borderRadius: "0.375rem",
@@ -342,8 +342,8 @@ export default function CreditsPage() {
                             <span className={tx.type === "payment" ? "badge-green" : "badge-red"} style={{ fontSize: "0.7rem" }}>
                               {tx.type === "payment" ? "دفعة" : tx.type === "purchase" ? "شراء" : "تعديل"}
                             </span>
-                            <span style={{ fontSize: "0.72rem", color: "#6b7280", marginRight: "0.5rem" }}>
-                              {formatDateTime(tx.createdAt)}
+                            <span style={{ fontSize: "0.75rem", color: "#374151", marginRight: "0.5rem", fontWeight: "600" }}>
+                              📅 وقت العملية: {formatDateTime(tx.createdAt)}
                             </span>
                             {tx.note && <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}> — {tx.note}</span>}
                           </div>

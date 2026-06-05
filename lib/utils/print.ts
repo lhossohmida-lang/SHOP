@@ -67,15 +67,27 @@ export function printReceipt(sale: Sale, storeName = "Blgasm POS"): void {
     <tr class="total-row"><td>الإجمالي</td><td style="text-align:left;">${formatCurrency(sale.total)}</td></tr>
   </table>
   <div class="footer">شكراً لزيارتكم! • Blgasm POS</div>
+  <script>
+    window.onload = function() {
+      window.focus();
+      window.onafterprint = function() {
+        window.close();
+      };
+      setTimeout(function() {
+        window.print();
+        setTimeout(function() {
+          window.close();
+        }, 2000);
+      }, 200);
+    };
+  </script>
 </body>
 </html>`;
 
-  const win = window.open("", "_blank", "width=400,height=600");
+  const win = window.open("", "_blank", "width=450,height=650");
   if (win) {
     win.document.write(html);
     win.document.close();
-    win.focus();
-    setTimeout(() => win.print(), 300);
   }
 }
 
@@ -181,15 +193,27 @@ export function printCustomerStatement(
   </table>
 
   <div class="footer">تم إنشاء هذا التقرير بواسطة Blgasm POS للخدمات التجارية</div>
+  <script>
+    window.onload = function() {
+      window.focus();
+      window.onafterprint = function() {
+        window.close();
+      };
+      setTimeout(function() {
+        window.print();
+        setTimeout(function() {
+          window.close();
+        }, 2000);
+      }, 200);
+    };
+  </script>
 </body>
 </html>`;
 
-  const win = window.open("", "_blank", "width=800,height=800");
+  const win = window.open("", "_blank", "width=850,height=850");
   if (win) {
     win.document.write(html);
     win.document.close();
-    win.focus();
-    setTimeout(() => win.print(), 300);
   }
 }
 

@@ -279,8 +279,8 @@ async function createWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    // Allow about:blank or local print preview windows to open internally in Electron
-    if (url === "about:blank" || url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost")) {
+    // Allow about:blank, empty urls, and local print preview windows to open internally in Electron
+    if (!url || url === "about:blank" || url.startsWith("about:") || url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost")) {
       return {
         action: "allow",
         overrideBrowserWindowOptions: {

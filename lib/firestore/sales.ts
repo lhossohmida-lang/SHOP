@@ -136,3 +136,12 @@ export async function deleteSaleAndRestoreStock(storeId: string, sale: Sale): Pr
   await deleteDoc(saleRef);
 }
 
+export async function getSale(storeId: string, saleId: string): Promise<Sale | null> {
+  const ref = doc(db, "stores", storeId, "sales", saleId);
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    return toSale(snap.id, snap.data());
+  }
+  return null;
+}
+

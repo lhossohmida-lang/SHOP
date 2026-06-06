@@ -66,6 +66,19 @@ export default function PosPage() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  // F10 → confirm current sale
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "F10") {
+        e.preventDefault();
+        handleConfirm();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleConfirm]);
+
   const suggestions = search.trim().length > 0
     ? activeProducts.filter(p =>
         p.nameAr.includes(search) ||
@@ -96,7 +109,7 @@ export default function PosPage() {
         totalPrice: l.sellingPrice * l.quantity,
       }));
 
-  const handleConfirm = async () => {
+  const handleConfirm = useCallback(async () => {
     if (!storeId || cart.lines.length === 0) return;
     if (mode === "credit" && !selectedCustomer) {
       setShowCreditPanel(true);
@@ -159,7 +172,8 @@ export default function PosPage() {
     } finally {
       setLoading(false);
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeId, mode, selectedCustomer, cart, appUser]);
 
   const filteredCustomers = activeCustomers.filter(c =>
     !custSearch || c.name.includes(custSearch) || c.phone.includes(custSearch)
@@ -367,7 +381,7 @@ export default function PosPage() {
                 <span className="badge-green">{cart.lines.length} صنف</span>
               )}
               <span style={{ marginRight: "auto", fontSize: "0.72rem", color: "#9ca3af", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                اضغط <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: "0.7rem", fontFamily: "monospace" }}>F1</kbd> لفتح نافذة بيع جديدة
+                اضغط <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: "0.7rem", fontFamily: "monospace" }}>F1</kbd> نافذة جديدة &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #c5e5b8", background: "#f1f8ee", fontSize: "0.7rem", fontFamily: "monospace", color: "#26683a" }}>F10</kbd> تأكيد الطلبية
               </span>
             </div>
             <PosTable

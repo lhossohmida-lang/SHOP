@@ -262,7 +262,7 @@ async function createWindow() {
   // Grant camera and microphone permissions automatically
   mainWindow.webContents.session.setPermissionRequestHandler(
     (_webContents, permission, callback) => {
-      const allowed = ["media", "camera", "microphone", "geolocation", "notifications"];
+      const allowed = ["media", "camera", "microphone", "geolocation", "notifications", "display-capture"];
       callback(allowed.includes(permission));
     }
   );
@@ -274,21 +274,23 @@ async function createWindow() {
     }
   );
 
+  // Always grant camera/microphone device access (no OS prompt blocking)
+  mainWindow.webContents.session.setDevicePermissionHandler(() => true);
+
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
     mainWindow.maximize();
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    // Intercept print requests and open them in the default system browser (Chrome/Edge)
-    // so that the standard Google Chrome print preview interface is shown.
-    if (url && (url.includes("/api/print") || url.includes("print=true"))) {
+    // 1. Always intercept print URLs → open in Chrome / Edge via system browser
+    if (url && url.includes("/api/print")) {
       shell.openExternal(url);
       return { action: "deny" };
     }
 
-    // Allow about:blank, empty urls, and local print preview windows to open internally in Electron
-    if (!url || url === "about:blank" || url.startsWith("about:") || url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost")) {
+    // 2. Allow about:blank and relative/internal windows to open inside Electron
+    if (!url || url === "about:blank" || url.startsWith("about:")) {
       return {
         action: "allow",
         overrideBrowserWindowOptions: {
@@ -301,7 +303,7 @@ async function createWindow() {
         }
       };
     }
-    // Deny external links and open in system browser
+    // 3. Deny all other external links and open in system browser
     shell.openExternal(url);
     return { action: "deny" };
   });

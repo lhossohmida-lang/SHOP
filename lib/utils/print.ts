@@ -17,9 +17,13 @@ async function executePrint(html: string, width = 450, height = 650): Promise<vo
       });
       if (response.ok) {
         const { id } = await response.json();
-        // Opening a URL containing /api/print will be intercepted by Electron
-        // and opened in the default browser (Chrome).
-        window.open(`/api/print?id=${id}`, "_blank");
+        // Build an absolute URL so Electron's setWindowOpenHandler sees
+        // it as an external link (localhost /api/print) and forwards it
+        // to shell.openExternal → Chrome / Edge opens the print dialog.
+        const absoluteUrl = `${window.location.origin}/api/print?id=${id}`;
+        // Use window.open with the absolute URL — the handler in main.cjs
+        // will match url.includes('/api/print') and call shell.openExternal.
+        window.open(absoluteUrl, "_blank");
         return;
       }
     } catch (err) {

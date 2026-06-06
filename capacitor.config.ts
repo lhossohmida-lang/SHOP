@@ -14,7 +14,11 @@ const config: CapacitorConfig = {
           androidScheme: serverUrl.startsWith("http://") ? "http" : "https",
         },
       }
-    : {}),
+    : {
+        server: {
+          androidScheme: "https",
+        },
+      }),
   android: {
     backgroundColor: "#f8fdf5",
     allowMixedContent: true,

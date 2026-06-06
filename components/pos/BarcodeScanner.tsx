@@ -14,6 +14,7 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const scannedRef = useRef(false);
+  const controlsRef = useRef<any>(null);
 
   const onScanRef = useRef(onScan);
   const onCloseRef = useRef(onClose);
@@ -29,7 +30,27 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
     async function startScanner() {
       try {
         const { BrowserMultiFormatReader } = await import("@zxing/browser");
-        const reader = new BrowserMultiFormatReader();
+        const { DecodeHintType, BarcodeFormat } = await import("@zxing/library");
+
+        // Set hints to focus on common 1D and 2D barcode formats
+        const hints = new Map();
+        const formats = [
+          BarcodeFormat.QR_CODE,
+          BarcodeFormat.DATA_MATRIX,
+          BarcodeFormat.EAN_13,
+          BarcodeFormat.EAN_8,
+          BarcodeFormat.UPC_A,
+          BarcodeFormat.UPC_E,
+          BarcodeFormat.CODE_128,
+          BarcodeFormat.CODE_39,
+          BarcodeFormat.CODE_93,
+          BarcodeFormat.ITF,
+          BarcodeFormat.CODABAR,
+        ];
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, formats);
+        hints.set(DecodeHintType.TRY_HARDER, true);
+
+        const reader = new BrowserMultiFormatReader(hints);
         readerRef.current = reader;
 
         const devices = await BrowserMultiFormatReader.listVideoInputDevices();
@@ -50,18 +71,49 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
 
         setLoading(false);
 
-        await reader.decodeFromVideoDevice(
-          backCamera.deviceId,
-          videoRef.current!,
-          (result, err) => {
-            if (!active || scannedRef.current) return;
-            if (result) {
-              scannedRef.current = true;
-              onScanRef.current(result.getText());
-              onCloseRef.current();
+        let controls;
+        try {
+          // Ask for higher camera resolution to make reading thin 1D barcode lines easier
+          const constraints: MediaStreamConstraints = {
+            video: {
+              deviceId: backCamera.deviceId ? { ideal: backCamera.deviceId } : undefined,
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              facingMode: { ideal: "environment" }
             }
-          }
-        );
+          };
+
+          controls = await reader.decodeFromConstraints(
+            constraints,
+            videoRef.current!,
+            (result, err) => {
+              if (!active || scannedRef.current) return;
+              if (result) {
+                scannedRef.current = true;
+                onScanRef.current(result.getText());
+                onCloseRef.current();
+              }
+            }
+          );
+        } catch (constraintsErr) {
+          console.warn("decodeFromConstraints failed, falling back to decodeFromVideoDevice", constraintsErr);
+          // Graceful fallback to default constraints
+          controls = await reader.decodeFromVideoDevice(
+            backCamera.deviceId,
+            videoRef.current!,
+            (result, err) => {
+              if (!active || scannedRef.current) return;
+              if (result) {
+                scannedRef.current = true;
+                onScanRef.current(result.getText());
+                onCloseRef.current();
+              }
+            }
+          );
+        }
+
+        controlsRef.current = controls;
+
       } catch (e: unknown) {
         if (active) {
           const msg = e instanceof Error ? e.message : "خطأ في الكاميرا";
@@ -79,6 +131,11 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
 
     return () => {
       active = false;
+      if (controlsRef.current) {
+        try {
+          controlsRef.current.stop();
+        } catch {}
+      }
       if (readerRef.current) {
         try {
           BrowserMultiFormatReader.releaseAllStreams();

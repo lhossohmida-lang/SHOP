@@ -8,9 +8,14 @@ const nextConfig = {
   output: isAndroidBuild ? "export" : "standalone",
   images: { unoptimized: true },
   typescript: { ignoreBuildErrors: true },
-  turbopack: {
-    root: path.resolve("."),
-  },
+  // turbopack config only applies for non-Android (standalone) builds
+  ...(isAndroidBuild
+    ? {}
+    : {
+        turbopack: {
+          root: path.resolve("."),
+        },
+      }),
 };
 
 export default nextConfig;

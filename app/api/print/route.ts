@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Mark as dynamic so this route is excluded from static (Android/Capacitor) exports
+// Mark as dynamic so this route is excluded from static (Android/Capacitor) exports.
+// With output:"export" Next.js will skip routes marked dynamic="force-dynamic".
 export const dynamic = "force-dynamic";
+
 // In-memory store for print payloads
 const printJobs = new Map<string, string>();
 

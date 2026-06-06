@@ -11,7 +11,7 @@
     "electron": "electron .",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
     "build:desktop": "cross-env NEXT_PUBLIC_AUTO_UNLOCK=1 next build --webpack && node scripts/prepare-electron-standalone.cjs && electron-builder --win nsis --x64",
-    "build:android:web": "cross-env CAPACITOR_BUILD=1 next build",
+    "build:android:web": "cross-env CAPACITOR_BUILD=1 next build --webpack",
     "android:sync": "npm run build:android:web && npx cap sync android",
     "android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug"
   },

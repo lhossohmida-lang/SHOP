@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+// Mark as dynamic so this route is excluded from static (Android/Capacitor) exports
+export const dynamic = "force-dynamic";
 // In-memory store for print payloads
 const printJobs = new Map<string, string>();
 

@@ -66,18 +66,6 @@ export default function PosPage() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // F10 → confirm current sale
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "F10") {
-        e.preventDefault();
-        handleConfirm();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handleConfirm]);
 
   const suggestions = search.trim().length > 0
     ? activeProducts.filter(p =>
@@ -174,6 +162,18 @@ export default function PosPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId, mode, selectedCustomer, cart, appUser]);
+
+  // F10 → confirm current sale (placed AFTER handleConfirm is defined)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "F10") {
+        e.preventDefault();
+        handleConfirm();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleConfirm]);
 
   const filteredCustomers = activeCustomers.filter(c =>
     !custSearch || c.name.includes(custSearch) || c.phone.includes(custSearch)

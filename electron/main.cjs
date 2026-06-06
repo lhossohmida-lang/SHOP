@@ -283,14 +283,21 @@ async function createWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    // 1. Always intercept print URLs → open in Chrome / Edge via system browser
+    // 1. /api/print → always open in Chrome / Edge (system browser)
     if (url && url.includes("/api/print")) {
       shell.openExternal(url);
       return { action: "deny" };
     }
 
-    // 2. Allow about:blank and relative/internal windows to open inside Electron
-    if (!url || url === "about:blank" || url.startsWith("about:")) {
+    // 2. Local app URLs (127.0.0.1 / localhost) → open inside a new Electron window
+    //    e.g. F1 shortcut opens a second POS window at http://127.0.0.1:<port>/pos
+    if (
+      !url ||
+      url === "about:blank" ||
+      url.startsWith("about:") ||
+      url.startsWith("http://127.0.0.1") ||
+      url.startsWith("http://localhost")
+    ) {
       return {
         action: "allow",
         overrideBrowserWindowOptions: {
@@ -299,11 +306,12 @@ async function createWindow() {
             nodeIntegration: false,
             contextIsolation: true,
             webSecurity: false,
-          }
-        }
+          },
+        },
       };
     }
-    // 3. Deny all other external links and open in system browser
+
+    // 3. All other external URLs → open in system browser
     shell.openExternal(url);
     return { action: "deny" };
   });

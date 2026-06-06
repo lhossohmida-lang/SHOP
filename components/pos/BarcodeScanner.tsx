@@ -88,7 +88,7 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
   }, []);
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" style={{ zIndex: 100 }} onClick={onClose}>
       <div
         className="card animate-slide-up"
         style={{ width: "100%", maxWidth: "400px", padding: "1.25rem" }}

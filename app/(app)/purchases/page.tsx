@@ -243,6 +243,23 @@ export default function PurchasesPage() {
                     placeholder="ابحث أو امسح الباركود..."
                     value={productSearch}
                     onChange={(e) => setProductSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const trimmed = productSearch.trim();
+                        if (trimmed) {
+                          const exactProduct = activeProducts.find((p) => p.barcode === trimmed);
+                          if (exactProduct) {
+                            addItem(exactProduct);
+                            e.preventDefault();
+                            return;
+                          }
+                        }
+                        if (searchResults.length > 0) {
+                          addItem(searchResults[0]);
+                          e.preventDefault();
+                        }
+                      }
+                    }}
                   />
                 </div>
                 <button

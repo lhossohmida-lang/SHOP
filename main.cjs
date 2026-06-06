@@ -279,6 +279,13 @@ async function createWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Intercept print requests and open them in the default system browser (Chrome/Edge)
+    // so that the standard Google Chrome print preview interface is shown.
+    if (url && (url.includes("/api/print") || url.includes("print=true"))) {
+      shell.openExternal(url);
+      return { action: "deny" };
+    }
+
     // Allow about:blank, empty urls, and local print preview windows to open internally in Electron
     if (!url || url === "about:blank" || url.startsWith("about:") || url.startsWith("http://127.0.0.1") || url.startsWith("http://localhost")) {
       return {

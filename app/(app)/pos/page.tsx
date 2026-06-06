@@ -24,6 +24,7 @@ export default function PosPage() {
   const { activeCustomers } = useCredits(storeId);
 
   const cart = usePosCart();
+  const { addProduct } = cart;
   const [mode, setMode] = useState<"cash" | "credit">("cash");
   const [search, setSearch] = useState("");
   const [showDropdown, setShowDropdown] = useState(false);
@@ -46,12 +47,12 @@ export default function PosPage() {
     const handleShortcutAdd = (e: Event) => {
       const p = (e as CustomEvent).detail as Product;
       if (p) {
-        cart.addProduct(p);
+        addProduct(p);
       }
     };
     window.addEventListener("add-shortcut-product", handleShortcutAdd);
     return () => window.removeEventListener("add-shortcut-product", handleShortcutAdd);
-  }, [cart]);
+  }, [addProduct]);
 
   // F1 → open new POS window
   useEffect(() => {
@@ -75,10 +76,10 @@ export default function PosPage() {
 
   const handleBarcode = useCallback((code: string) => {
     const p = activeProducts.find(p => p.barcode === code.trim());
-    if (p) { cart.addProduct(p); setSearch(""); setShowDropdown(false); }
+    if (p) { addProduct(p); setSearch(""); setShowDropdown(false); }
     else { setSearch(code); setShowDropdown(true); }
     setShowCamera(false);
-  }, [activeProducts, cart]);
+  }, [activeProducts, addProduct]);
 
   useUsbScanner(handleBarcode, !showCamera && !showCreditPanel);
 
@@ -242,9 +243,24 @@ export default function PosPage() {
             onChange={e => { setSearch(e.target.value); setShowDropdown(true); }}
             onFocus={() => setShowDropdown(true)}
             onKeyDown={e => {
-              if (e.key === "Enter" && suggestions.length > 0) {
-                cart.addProduct(suggestions[0]);
-                setSearch(""); setShowDropdown(false);
+              if (e.key === "Enter") {
+                const trimmed = search.trim();
+                if (trimmed) {
+                  const exactProduct = activeProducts.find(p => p.barcode === trimmed);
+                  if (exactProduct) {
+                    addProduct(exactProduct);
+                    setSearch("");
+                    setShowDropdown(false);
+                    e.preventDefault();
+                    return;
+                  }
+                }
+                if (suggestions.length > 0) {
+                  addProduct(suggestions[0]);
+                  setSearch("");
+                  setShowDropdown(false);
+                  e.preventDefault();
+                }
               }
               if (e.key === "Escape") { setSearch(""); setShowDropdown(false); }
             }}

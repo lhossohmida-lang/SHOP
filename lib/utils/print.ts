@@ -3,6 +3,38 @@ import type { CreditCustomer, CreditTransaction } from "@/types/credit";
 import { formatCurrency } from "./currency";
 import { formatDateTime } from "./date";
 
+async function executePrint(html: string, width = 450, height = 650): Promise<void> {
+  const isElectron = typeof window !== "undefined" && window.navigator.userAgent.toLowerCase().includes("electron");
+
+  if (isElectron) {
+    try {
+      const response = await fetch("/api/print", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ html }),
+      });
+      if (response.ok) {
+        const { id } = await response.json();
+        // Opening a URL containing /api/print will be intercepted by Electron
+        // and opened in the default browser (Chrome).
+        window.open(`/api/print?id=${id}`, "_blank");
+        return;
+      }
+    } catch (err) {
+      console.error("Failed to send print job to Electron backend:", err);
+    }
+  }
+
+  // Fallback for standard browsers / mobile / failures
+  const win = window.open("", "_blank", `width=${width},height=${height}`);
+  if (win) {
+    win.document.write(html);
+    win.document.close();
+  }
+}
+
 export function printReceipt(sale: Sale, storeName = "Blgasm POS"): void {
   const lines = sale.items
     .map(
@@ -84,11 +116,7 @@ export function printReceipt(sale: Sale, storeName = "Blgasm POS"): void {
 </body>
 </html>`;
 
-  const win = window.open("", "_blank", "width=450,height=650");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-  }
+  executePrint(html, 450, 650);
 }
 
 export function printCustomerStatement(
@@ -107,7 +135,7 @@ export function printCustomerStatement(
       const typeStr = typeMap[tx.type] || tx.type;
       const sign = tx.type === "payment" ? "-" : "+";
       const color = tx.type === "payment" ? "green" : "red";
-      
+
       let itemsStr = "";
       if (tx.saleItems && tx.saleItems.length > 0) {
         itemsStr = `<div style="font-size:11px;color:#555;margin-top:4px;padding-right:8px;border-right:2px solid #ccc;">
@@ -163,7 +191,7 @@ export function printCustomerStatement(
     <div style="font-size: 14px; margin-top: 5px; font-weight: bold;">كشف حساب عميل (كريدي)</div>
     <div style="font-size: 12px; color: #666; margin-top: 2px;">تاريخ الاستخراج: ${formatDateTime(new Date())}</div>
   </div>
-  
+
   <div class="customer-info">
     <div>
       <strong>العميل:</strong> ${customer.name}<br/>
@@ -210,10 +238,5 @@ export function printCustomerStatement(
 </body>
 </html>`;
 
-  const win = window.open("", "_blank", "width=850,height=850");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-  }
+  executePrint(html, 850, 850);
 }
-

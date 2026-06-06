@@ -15,6 +15,14 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
   const [loading, setLoading] = useState(true);
   const scannedRef = useRef(false);
 
+  const onScanRef = useRef(onScan);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onScanRef.current = onScan;
+    onCloseRef.current = onClose;
+  }, [onScan, onClose]);
+
   useEffect(() => {
     let active = true;
 
@@ -49,8 +57,8 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
             if (!active || scannedRef.current) return;
             if (result) {
               scannedRef.current = true;
-              onScan(result.getText());
-              onClose();
+              onScanRef.current(result.getText());
+              onCloseRef.current();
             }
           }
         );
@@ -77,7 +85,7 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
         } catch {}
       }
     };
-  }, [onScan, onClose]);
+  }, []);
 
   return (
     <div className="modal-overlay" onClick={onClose}>

@@ -3,6 +3,7 @@ import { useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { usePurchases } from "@/hooks/usePurchases";
+import { useUsbScanner } from "@/hooks/useUsbScanner";
 import { addPurchase } from "@/lib/firestore/purchases";
 import { updateProduct } from "@/lib/firestore/products";
 import { formatCurrency } from "@/lib/utils/currency";
@@ -69,6 +70,20 @@ export default function PurchasesPage() {
     },
     [activeProducts, addItem]
   );
+
+  const handleUsbScan = useCallback(
+    (barcode: string) => {
+      const product = activeProducts.find((p) => p.barcode === barcode);
+      if (product) {
+        addItem(product);
+      } else {
+        setProductSearch(barcode);
+      }
+    },
+    [activeProducts, addItem]
+  );
+
+  useUsbScanner(handleUsbScan, showForm && !showCamera);
 
   const updateItem = (productId: string, field: "quantity" | "unitCost", val: number) => {
     setItems((prev) =>

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
  * build-android-web.cjs
- * Temporarily removes the app/api directory (which contains server-only routes
- * incompatible with Next.js static export), runs "next build --webpack",
- * then restores the directory.
+ * Temporarily moves the app/api directory (server-only routes incompatible
+ * with Next.js "output: export") out of the way, runs the static build,
+ * then restores it. Uses copy+delete instead of rename (Windows-safe).
  */
 const { execSync } = require("child_process");
 const fs = require("fs");
@@ -13,34 +13,45 @@ const root = path.resolve(__dirname, "..");
 const apiDir = path.join(root, "app", "api");
 const apiDirBak = path.join(root, "app", "_api_bak");
 
-let moved = false;
+let backed = false;
 
 function restore() {
-  if (moved && fs.existsSync(apiDirBak)) {
-    fs.renameSync(apiDirBak, apiDir);
-    console.log("✅ Restored app/api directory.");
+  try {
+    if (backed && fs.existsSync(apiDirBak)) {
+      if (!fs.existsSync(apiDir)) {
+        fs.cpSync(apiDirBak, apiDir, { recursive: true });
+      }
+      fs.rmSync(apiDirBak, { recursive: true, force: true });
+      console.log("✅ Restored app/api directory.");
+    }
+  } catch (e) {
+    console.error("⚠ Could not restore app/api:", e.message);
   }
 }
 
-// Ensure restore runs even on error
 process.on("exit", restore);
 process.on("SIGINT", () => { restore(); process.exit(1); });
-process.on("uncaughtException", (err) => { restore(); throw err; });
 
 try {
   if (fs.existsSync(apiDir)) {
-    fs.renameSync(apiDir, apiDirBak);
-    moved = true;
-    console.log("📦 Temporarily moved app/api → app/_api_bak for static export...");
+    // Copy api → _api_bak
+    fs.cpSync(apiDir, apiDirBak, { recursive: true });
+    // Delete original
+    fs.rmSync(apiDir, { recursive: true, force: true });
+    backed = true;
+    console.log("📦 Temporarily hid app/api for static export build...");
   }
 
-  console.log("🔨 Running: next build --webpack (CAPACITOR_BUILD=1)");
+  console.log("🔨 Building Android web (CAPACITOR_BUILD=1, --webpack)...");
   execSync("cross-env CAPACITOR_BUILD=1 next build --webpack", {
     cwd: root,
     stdio: "inherit",
   });
 
   console.log("✅ Android web build complete.");
-} finally {
+} catch (err) {
+  console.error("❌ Build failed:", err.message);
   restore();
+  backed = false;
+  process.exit(1);
 }

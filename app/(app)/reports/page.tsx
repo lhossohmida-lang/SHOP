@@ -2,10 +2,12 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getSalesByDateRange, deleteSaleAndRestoreStock } from "@/lib/firestore/sales";
+import { getExpensesByDateRange } from "@/lib/firestore/expenses";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDateTime } from "@/lib/utils/date";
-import { BarChart3, Download, Search, Trash2 } from "lucide-react";
+import { BarChart3, Download, Search, Trash2, Receipt } from "lucide-react";
 import type { Sale } from "@/types/sale";
+import type { Expense } from "@/types/expense";
 import PasswordGate from "@/components/layout/PasswordGate";
 
 export default function ReportsPage() {
@@ -17,6 +19,7 @@ export default function ReportsPage() {
   const [endDate, setEndDate] = useState(today);
   const [payFilter, setPayFilter] = useState("الكل");
   const [sales, setSales] = useState<Sale[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetched, setFetched] = useState(false);
 
@@ -26,8 +29,12 @@ export default function ReportsPage() {
     try {
       const start = new Date(startDate); start.setHours(0, 0, 0, 0);
       const end = new Date(endDate); end.setHours(23, 59, 59, 999);
-      const data = await getSalesByDateRange(storeId, start, end);
-      setSales(data);
+      const [salesData, expensesData] = await Promise.all([
+        getSalesByDateRange(storeId, start, end),
+        getExpensesByDateRange(storeId, start, end),
+      ]);
+      setSales(salesData);
+      setExpenses(expensesData);
       setFetched(true);
     } catch (e) { alert("خطأ: " + e); }
     finally { setLoading(false); }
@@ -52,17 +59,24 @@ export default function ReportsPage() {
   const cashTotal = filtered.filter(s => s.paymentMethod === "cash").reduce((s, sale) => s + sale.total, 0);
   const cardTotal = filtered.filter(s => s.paymentMethod === "card").reduce((s, sale) => s + sale.total, 0);
   const creditTotal = filtered.filter(s => s.paymentMethod === "credit").reduce((s, sale) => s + sale.total, 0);
+  const expensesTotal = expenses.reduce((s, e) => s + e.amount, 0);
+  const netTotal = totalAmount - expensesTotal;
 
   const exportCSV = () => {
-    const rows = [
+    const salesRows = [
+      ["--- المبيعات ---"],
       ["رقم الوصل", "التاريخ", "الكاشير", "الأصناف", "الإجمالي", "طريقة الدفع"],
       ...filtered.map(s => [s.receiptNumber, formatDateTime(s.createdAt), s.cashierName, s.items.length, s.total, s.paymentMethod]),
+      [],
+      ["--- المصاريف ---"],
+      ["الوصف", "التاريخ", "المبلغ", "ملاحظة"],
+      ...expenses.map(e => [e.title, formatDateTime(e.createdAt), e.amount, e.note || ""]),
     ];
-    const csv = rows.map(r => r.join(",")).join("\n");
+    const csv = salesRows.map(r => r.join(",")).join("\n");
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `تقرير-المبيعات-${startDate}-${endDate}.csv`; a.click();
+    a.href = url; a.download = `تقرير-${startDate}-${endDate}.csv`; a.click();
   };
 
   return (
@@ -71,7 +85,7 @@ export default function ReportsPage() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
         <div>
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#17231c" }}>التقارير</h1>
-          <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>تقارير المبيعات والأرباح</p>
+          <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>تقارير المبيعات والمصاريف والأرباح</p>
         </div>
         {fetched && <button onClick={exportCSV} className="btn-secondary"><Download size={16} /> تصدير CSV</button>}
       </div>
@@ -111,6 +125,8 @@ export default function ReportsPage() {
             { label: "بطاقة", value: formatCurrency(cardTotal), color: "#3b82f6", bg: "#eff6ff" },
             { label: "آجل", value: formatCurrency(creditTotal), color: "#dc2626", bg: "#fff5f5" },
             { label: "عدد الفواتير", value: String(filtered.length), color: "#6b7280", bg: "#f9fafb" },
+            { label: "إجمالي المصاريف", value: formatCurrency(expensesTotal), color: "#d97706", bg: "#fffbeb" },
+            { label: "صافي (مبيعات − مصاريف)", value: formatCurrency(netTotal), color: netTotal >= 0 ? "#26683a" : "#dc2626", bg: netTotal >= 0 ? "#f0fdf4" : "#fff5f5" },
           ].map((s, i) => (
             <div key={i} className="card-sm" style={{ border: `1px solid ${s.bg}`, background: s.bg }}>
               <div style={{ fontSize: "0.78rem", color: "#6b7280", marginBottom: "0.25rem" }}>{s.label}</div>
@@ -120,9 +136,49 @@ export default function ReportsPage() {
         </div>
       )}
 
+      {/* Expenses Table */}
+      {fetched && (
+        <div style={{ marginBottom: "1.5rem" }}>
+          <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#17231c", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <Receipt size={18} color="#d97706" /> المصاريف في هذه الفترة
+          </h2>
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>الوصف</th>
+                  <th>التاريخ</th>
+                  <th>المسجّل بواسطة</th>
+                  <th>ملاحظة</th>
+                  <th>المبلغ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {expenses.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: "center", padding: "1.5rem", color: "#9ca3af" }}>
+                      لا توجد مصاريف في هذه الفترة
+                    </td>
+                  </tr>
+                ) : expenses.map((e) => (
+                  <tr key={e.id}>
+                    <td style={{ fontWeight: 600 }}>{e.title}</td>
+                    <td style={{ fontSize: "0.8rem", color: "#6b7280" }}>{formatDateTime(e.createdAt)}</td>
+                    <td style={{ fontSize: "0.85rem" }}>{e.createdByName || "—"}</td>
+                    <td style={{ fontSize: "0.8rem", color: "#6b7280" }}>{e.note || "—"}</td>
+                    <td style={{ fontWeight: 700, color: "#d97706" }}>{formatCurrency(e.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Sales Table */}
       {fetched && (
         <div className="table-container">
+          <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#17231c", marginBottom: "0.75rem" }}>المبيعات</h2>
           <table>
             <thead>
               <tr>

@@ -18,7 +18,7 @@ const navItems = [
   { href: "/inventory", label: "المخزون", icon: Boxes },
   { href: "/products", label: "المنتجات", icon: Package },
   { href: "/purchases", label: "المشتريات", icon: ClipboardList },
-  { href: "/credits", label: "خانة الكريديات", icon: CreditCard },
+  { href: "/credits", label: "كريديتات", icon: CreditCard },
   { href: "/reports", label: "التقارير", icon: BarChart3 },
   { href: "/ai", label: "الذكاء", icon: Sparkles },
 ];

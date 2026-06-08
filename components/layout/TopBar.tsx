@@ -12,7 +12,7 @@ const pageTitles: Record<string, string> = {
   "/products/new": "منتج جديد",
   "/inventory": "المخزون",
   "/purchases": "المشتريات",
-  "/credits": "الكريديتيات",
+  "/credits": "خانة الكريديتات والمصاريف",
   "/reports": "التقارير",
   "/ai": "المساعد الذكي",
 };

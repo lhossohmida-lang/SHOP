@@ -10,7 +10,8 @@ import { getSale } from "@/lib/firestore/sales";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDate, formatDateTime } from "@/lib/utils/date";
 import { printCustomerStatement } from "@/lib/utils/print";
-import { Plus, X, Search, CreditCard, Phone, Calendar, Trash2, Printer, TrendingUp } from "lucide-react";
+import { Plus, X, Search, CreditCard, Phone, Calendar, Trash2, Printer, TrendingUp, Receipt } from "lucide-react";
+import ExpensesPanel from "@/components/credits/ExpensesPanel";
 import type { CreditCustomer, CreditTransaction } from "@/types/credit";
 
 interface CreditTransactionWithItems extends CreditTransaction {
@@ -32,6 +33,7 @@ export default function CreditsPage() {
   const storeId = appUser?.storeId;
   const { customers, totalDebt, loading } = useCredits(storeId);
 
+  const [activeTab, setActiveTab] = useState<"credits" | "expenses">("credits");
   const [search, setSearch] = useState("");
   const [showAddCustomer, setShowAddCustomer] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
@@ -254,13 +256,41 @@ export default function CreditsPage() {
     <div className="animate-fade-in">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
         <div>
-          <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#17231c" }}>إدارة الكريديتيات</h1>
-          <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>متابعة الديون وتسجيل المدفوعات</p>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#17231c" }}>خانة الكريديتات والمصاريف</h1>
+          <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>متابعة الديون والمصاريف اليومية</p>
         </div>
-        <button onClick={() => { setErrorMsg(""); setShowAddCustomer(true); }} className="btn-primary">
-          <Plus size={18} /> عميل جديد
-        </button>
+        {activeTab === "credits" && (
+          <button onClick={() => { setErrorMsg(""); setShowAddCustomer(true); }} className="btn-primary">
+            <Plus size={18} /> عميل جديد
+          </button>
+        )}
       </div>
+
+      <div style={{ display: "flex", borderRadius: "0.625rem", overflow: "hidden", border: "1px solid #e5e7eb", marginBottom: "1.25rem" }}>
+        {([
+          { id: "credits" as const, label: "الكريديتات", icon: CreditCard },
+          { id: "expenses" as const, label: "المصاريف", icon: Receipt },
+        ]).map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setActiveTab(id)}
+            style={{
+              flex: 1, padding: "0.65rem", border: "none", cursor: "pointer",
+              fontWeight: activeTab === id ? 700 : 400, fontSize: "0.875rem",
+              background: activeTab === id ? "#26683a" : "white",
+              color: activeTab === id ? "white" : "#6b7280",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: "0.35rem",
+            }}
+          >
+            <Icon size={16} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "expenses" && <ExpensesPanel />}
+
+      {activeTab === "credits" && (
+      <>
 
       {/* Error banner */}
       {errorMsg && (
@@ -651,6 +681,9 @@ export default function CreditsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      </>
       )}
 
       {/* Delete Customer Confirmation Modal */}

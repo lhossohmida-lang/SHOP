@@ -1,6 +1,7 @@
 import type { Sale } from "@/types/sale";
 import type { CreditCustomer, CreditTransaction } from "@/types/credit";
 import { STORE_NAME } from "@/lib/constants/branding";
+import { renderBarcodeSvg } from "@/lib/barcode/renderBarcode";
 import { formatCurrency } from "./currency";
 import { formatDateTime } from "./date";
 
@@ -64,7 +65,18 @@ function printScript(): string {
   </script>`;
 }
 
-export function printProductLabel(productName: string, sellingPrice: number): void {
+function barcodeBlock(barcode?: string): string {
+  if (!barcode) return "";
+  const svg = renderBarcodeSvg(barcode);
+  if (!svg) return "";
+  return `<div class="barcode-wrap">${svg}</div>`;
+}
+
+export function printProductLabel(
+  productName: string,
+  sellingPrice: number,
+  barcode?: string
+): void {
   const html = `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
@@ -89,17 +101,27 @@ export function printProductLabel(productName: string, sellingPrice: number): vo
       text-align: center;
     }
     .name {
-      font-size: 8pt;
+      font-size: 7pt;
       font-weight: bold;
       color: #17231c;
       line-height: 1.25;
-      max-height: 32mm;
+      max-height: 16mm;
       overflow: hidden;
       word-break: break-word;
     }
+    .barcode-wrap {
+      margin-top: 1mm;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+    }
+    .barcode-wrap svg {
+      max-width: 29mm;
+      height: auto;
+    }
     .price {
-      margin-top: 2mm;
-      font-size: 11pt;
+      margin-top: 1mm;
+      font-size: 10pt;
       font-weight: bold;
       color: #26683a;
       white-space: nowrap;
@@ -111,9 +133,89 @@ export function printProductLabel(productName: string, sellingPrice: number): vo
 </head>
 <body>
   <div class="name">${productName}</div>
+  ${barcodeBlock(barcode)}
   <div class="price">${formatCurrency(sellingPrice)}</div>
   ${printScript()}
 </body>
+</html>`;
+
+  executePrint(html, LABEL_WINDOW.width, LABEL_WINDOW.height);
+}
+
+function productLabelHtml(
+  productName: string,
+  sellingPrice: number,
+  barcode?: string
+): string {
+  return `<div class="label-page">
+  <div class="name">${productName}</div>
+  ${barcodeBlock(barcode)}
+  <div class="price">${formatCurrency(sellingPrice)}</div>
+</div>`;
+}
+
+const labelPageStyles = `
+    @page { size: ${LABEL_PAGE}; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { font-family: Tahoma, Arial, sans-serif; direction: rtl; }
+    .label-page {
+      width: 33mm;
+      height: 55mm;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2mm;
+      text-align: center;
+      page-break-after: always;
+    }
+    .label-page:last-child { page-break-after: auto; }
+    .name {
+      font-size: 7pt;
+      font-weight: bold;
+      color: #17231c;
+      line-height: 1.25;
+      max-height: 16mm;
+      overflow: hidden;
+      word-break: break-word;
+    }
+    .barcode-wrap {
+      margin-top: 1mm;
+      width: 100%;
+      display: flex;
+      justify-content: center;
+    }
+    .barcode-wrap svg {
+      max-width: 29mm;
+      height: auto;
+    }
+    .price {
+      margin-top: 1mm;
+      font-size: 10pt;
+      font-weight: bold;
+      color: #26683a;
+      white-space: nowrap;
+    }
+`;
+
+export function printProductLabelsBatch(
+  products: { name: string; sellingPrice: number; barcode?: string }[]
+): void {
+  if (products.length === 0) return;
+
+  const pages = products
+    .map((p) => productLabelHtml(p.name, p.sellingPrice, p.barcode))
+    .join("");
+
+  const html = `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8"/>
+  <title>طباعة ${products.length} بطاقة</title>
+  <style>${labelPageStyles}</style>
+</head>
+<body>${pages}${printScript()}</body>
 </html>`;
 
   executePrint(html, LABEL_WINDOW.width, LABEL_WINDOW.height);
@@ -205,7 +307,7 @@ export function printCustomerStatement(
   const typeMap: Record<string, string> = {
     purchase: "شراء (كريدي)",
     payment: "دفع دفعة",
-    adjustment: "تعديل رصيد",
+    adjustment: "إضافة دين",
   };
 
   const rows = txs

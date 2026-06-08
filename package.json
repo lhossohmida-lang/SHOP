@@ -10,10 +10,11 @@
     "lint": "next lint",
     "electron": "electron .",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
-    "build:desktop": "cross-env NEXT_PUBLIC_AUTO_UNLOCK=1 next build --webpack && node scripts/prepare-electron-standalone.cjs && electron-builder --win nsis --x64",
+    "build:desktop": "node scripts/generate-icons.cjs && cross-env NEXT_PUBLIC_AUTO_UNLOCK=1 next build --webpack && node scripts/prepare-electron-standalone.cjs && electron-builder --win nsis --x64",
     "build:android:web": "node scripts/build-android-web.cjs",
-    "android:sync": "npm run build:android:web && npx cap sync android",
-    "android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug"
+    "android:sync": "node scripts/generate-icons.cjs && npm run build:android:web && npx cap sync android",
+    "android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug",
+    "icons": "node scripts/generate-icons.cjs"
   },
   "dependencies": {
     "@capacitor-mlkit/barcode-scanning": "^7.5.0",
@@ -24,6 +25,7 @@
     "barcode-detector": "^3.2.0",
     "firebase": "^11.0.0",
     "idb": "^8.0.0",
+    "jsbarcode": "^3.12.3",
     "jsqr": "^1.4.0",
     "lucide-react": "^0.468.0",
     "next": "^16.2.7",
@@ -48,6 +50,7 @@
   "build": {
     "appId": "com.blgasm.pos",
     "productName": "بلقاسم",
+    "icon": "public/icon.png",
     "directories": {
       "output": "release"
     },
@@ -67,6 +70,7 @@
       ".next/standalone/**/*"
     ],
     "win": {
+      "icon": "public/icon.png",
       "target": [
         {
           "target": "nsis",

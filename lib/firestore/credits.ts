@@ -71,16 +71,64 @@ export function creditTransactionsCol(storeId: string) {
 
 export async function addCreditCustomer(
   storeId: string,
-  data: Omit<CreditCustomer, "id" | "createdAt" | "lastTransactionAt" | "storeId">
+  data: Omit<CreditCustomer, "id" | "createdAt" | "lastTransactionAt" | "storeId">,
+  options?: { initialDebtNote?: string; createdBy?: string }
 ): Promise<string> {
+  const initialDebt = Math.max(0, data.totalDebt || 0);
   const ref = await addDoc(creditCustomersCol(storeId), {
     ...data,
     storeId,
-    totalDebt: 0,
+    totalDebt: initialDebt,
     createdAt: serverTimestamp(),
     lastTransactionAt: serverTimestamp(),
   });
+
+  if (initialDebt > 0 && options?.createdBy) {
+    await addCreditTransaction(storeId, {
+      customerId: ref.id,
+      customerName: data.name,
+      type: "adjustment",
+      amount: initialDebt,
+      balanceBefore: 0,
+      balanceAfter: initialDebt,
+      note: options.initialDebtNote?.trim() || "دين افتتاحي",
+      createdBy: options.createdBy,
+    });
+  }
+
   return ref.id;
+}
+
+export async function addCustomerDebt(
+  storeId: string,
+  customer: CreditCustomer,
+  amount: number,
+  createdBy: string,
+  note = "",
+  createdAt?: Date
+): Promise<void> {
+  const debtAmount = Math.max(0, amount);
+  if (debtAmount <= 0) return;
+
+  const balanceBefore = customer.totalDebt;
+  const balanceAfter = balanceBefore + debtAmount;
+
+  await addCreditTransaction(storeId, {
+    customerId: customer.id,
+    customerName: customer.name,
+    type: "adjustment",
+    amount: debtAmount,
+    balanceBefore,
+    balanceAfter,
+    note: note.trim() || "إضافة دين",
+    createdBy,
+    createdAt,
+  });
+
+  await updateCreditCustomer(storeId, customer.id, {
+    totalDebt: balanceAfter,
+    lastTransactionAt: createdAt || new Date(),
+  });
 }
 
 export async function updateCreditCustomer(

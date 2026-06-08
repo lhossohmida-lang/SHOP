@@ -4,13 +4,13 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCredits } from "@/hooks/useCredits";
 import {
   addCreditCustomer, updateCreditCustomer, deleteCreditCustomer,
-  addCreditTransaction, getCreditTransactions,
+  addCreditTransaction, addCustomerDebt, getCreditTransactions,
 } from "@/lib/firestore/credits";
 import { getSale } from "@/lib/firestore/sales";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDate, formatDateTime } from "@/lib/utils/date";
 import { printCustomerStatement } from "@/lib/utils/print";
-import { Plus, X, Search, CreditCard, Phone, Calendar, Trash2, Printer } from "lucide-react";
+import { Plus, X, Search, CreditCard, Phone, Calendar, Trash2, Printer, TrendingUp } from "lucide-react";
 import type { CreditCustomer, CreditTransaction } from "@/types/credit";
 
 interface CreditTransactionWithItems extends CreditTransaction {
@@ -35,6 +35,7 @@ export default function CreditsPage() {
   const [search, setSearch] = useState("");
   const [showAddCustomer, setShowAddCustomer] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
+  const [showAddDebt, setShowAddDebt] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<CreditCustomer | null>(null);
   const [transactions, setTransactions] = useState<CreditTransactionWithItems[]>([]);
   const [loadingTx, setLoadingTx] = useState(false);
@@ -48,11 +49,17 @@ export default function CreditsPage() {
   const [newAddress, setNewAddress] = useState("");
   const [creditLimit, setCreditLimit] = useState<number | "">(50000);
   const [newDueDate, setNewDueDate] = useState("");
+  const [newInitialDebt, setNewInitialDebt] = useState<number | "">("");
 
   // Payment fields
   const [payAmount, setPayAmount] = useState<number | "">("");
   const [payNote, setPayNote] = useState("");
   const [payDate, setPayDate] = useState(() => new Date().toISOString().split("T")[0]);
+
+  // Add debt fields
+  const [debtAmount, setDebtAmount] = useState<number | "">("");
+  const [debtNote, setDebtNote] = useState("");
+  const [debtDate, setDebtDate] = useState(() => new Date().toISOString().split("T")[0]);
 
   // Delete customer field
   const [customerToDelete, setCustomerToDelete] = useState<CreditCustomer | null>(null);
@@ -142,25 +149,69 @@ export default function CreditsPage() {
     setShowPayment(true);
   };
 
+  const openAddDebt = (c: CreditCustomer) => {
+    setSelectedCustomer(c);
+    setDebtAmount("");
+    setDebtNote("");
+    setDebtDate(new Date().toISOString().split("T")[0]);
+    setShowAddDebt(true);
+  };
+
   const handleAddCustomer = async () => {
     if (!storeId || !newName.trim()) return;
     setSaving(true);
     setErrorMsg("");
     try {
-      await addCreditCustomer(storeId, {
-        name: newName.trim(),
-        phone: newPhone.trim(),
-        address: newAddress.trim() || "",
-        totalDebt: 0,
-        creditLimit: Number(creditLimit) || 50000,
-        isActive: true,
-        dueDate: newDueDate || "",
-      });
+      const initialDebt = Number(newInitialDebt) || 0;
+      await addCreditCustomer(
+        storeId,
+        {
+          name: newName.trim(),
+          phone: newPhone.trim(),
+          address: newAddress.trim() || "",
+          totalDebt: initialDebt,
+          creditLimit: Number(creditLimit) || 50000,
+          isActive: true,
+          dueDate: newDueDate || "",
+        },
+        initialDebt > 0
+          ? { createdBy: appUser!.uid, initialDebtNote: "دين افتتاحي" }
+          : undefined
+      );
       setShowAddCustomer(false);
-      setNewName(""); setNewPhone(""); setNewAddress(""); setCreditLimit(50000); setNewDueDate("");
+      setNewName(""); setNewPhone(""); setNewAddress(""); setCreditLimit(50000); setNewDueDate(""); setNewInitialDebt("");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMsg("خطأ في إضافة العميل: " + msg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddDebt = async () => {
+    if (!storeId || !selectedCustomer || !debtAmount) return;
+    const amount = Number(debtAmount);
+    if (amount <= 0) return;
+
+    setSaving(true);
+    setErrorMsg("");
+    try {
+      await addCustomerDebt(
+        storeId,
+        selectedCustomer,
+        amount,
+        appUser!.uid,
+        debtNote.trim() || "إضافة دين",
+        new Date(debtDate)
+      );
+      setShowAddDebt(false);
+      setSelectedCustomer(null);
+      if (detailCustomer?.id === selectedCustomer.id) {
+        await loadTransactions({ ...selectedCustomer, totalDebt: selectedCustomer.totalDebt + amount });
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErrorMsg("خطأ في إضافة الدين: " + msg);
     } finally {
       setSaving(false);
     }
@@ -307,6 +358,9 @@ export default function CreditsPage() {
                   </div>
                   <div style={{ fontSize: "0.7rem", color: "#9ca3af" }}>حد: {formatCurrency(c.creditLimit)}</div>
                 </div>
+                <button onClick={() => openAddDebt(c)} className="btn-secondary" style={{ padding: "0.375rem 0.75rem", fontSize: "0.8rem", color: "#dc2626", borderColor: "#fecaca" }}>
+                  <TrendingUp size={14} /> دين
+                </button>
                 <button onClick={() => openPayment(c)} className="btn-primary" style={{ padding: "0.375rem 0.75rem", fontSize: "0.8rem" }}>
                   <CreditCard size={14} /> دفعة
                 </button>
@@ -356,12 +410,63 @@ export default function CreditsPage() {
               <FormField label="تاريخ استحقاق الدفع">
                 <input type="date" className="input-field" value={newDueDate} onChange={(e) => setNewDueDate(e.target.value)} />
               </FormField>
+              <FormField label="دين افتتاحي (د.ج) — اختياري">
+                <input
+                  type="number"
+                  min="0"
+                  className="input-field"
+                  value={newInitialDebt}
+                  onChange={(e) => setNewInitialDebt(e.target.value === "" ? "" : Number(e.target.value))}
+                  placeholder="0"
+                  dir="ltr"
+                  style={{ textAlign: "left" }}
+                />
+              </FormField>
             </div>
             {errorMsg && <p style={{ color: "#dc2626", fontSize: "0.8rem", marginTop: "0.5rem" }}>{errorMsg}</p>}
             <div style={{ display: "flex", gap: "0.75rem", marginTop: "1.25rem" }}>
               <button onClick={() => setShowAddCustomer(false)} className="btn-secondary" style={{ flex: 1, justifyContent: "center" }}>إلغاء</button>
               <button onClick={handleAddCustomer} disabled={saving || !newName.trim()} className="btn-primary" style={{ flex: 2, justifyContent: "center" }}>
                 {saving ? "جارٍ الحفظ..." : "إضافة العميل"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Debt Modal */}
+      {showAddDebt && selectedCustomer && (
+        <div className="modal-overlay" onClick={() => setShowAddDebt(false)}>
+          <div className="card animate-slide-up" style={{ width: "100%", maxWidth: "380px" }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1.25rem" }}>
+              <h2 style={{ fontWeight: 700 }}>إضافة دين</h2>
+              <button onClick={() => setShowAddDebt(false)} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={20} /></button>
+            </div>
+            <div style={{ background: "#fff5f5", borderRadius: "0.75rem", padding: "0.875rem", marginBottom: "1rem" }}>
+              <div style={{ fontWeight: 600 }}>{selectedCustomer.name}</div>
+              <div style={{ color: "#dc2626", fontWeight: 700, fontSize: "1.1rem" }}>الدين الحالي: {formatCurrency(selectedCustomer.totalDebt)}</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              <FormField label="مبلغ الدين (د.ج) *">
+                <input type="number" min="0" className="input-field" value={debtAmount} onChange={(e) => setDebtAmount(e.target.value === "" ? "" : Number(e.target.value))} dir="ltr" style={{ textAlign: "left" }} autoFocus />
+              </FormField>
+              <FormField label="تاريخ الدين">
+                <input type="date" className="input-field" value={debtDate} onChange={(e) => setDebtDate(e.target.value)} />
+              </FormField>
+              <FormField label="ملاحظة">
+                <input className="input-field" value={debtNote} onChange={(e) => setDebtNote(e.target.value)} placeholder="مثال: بضاعة سابقة" autoComplete="off" />
+              </FormField>
+              {debtAmount !== "" && Number(debtAmount) > 0 && (
+                <div style={{ background: "#fef2f2", padding: "0.625rem", borderRadius: "0.5rem", fontSize: "0.85rem" }}>
+                  الرصيد بعد الإضافة: <strong style={{ color: "#dc2626" }}>{formatCurrency(selectedCustomer.totalDebt + Number(debtAmount))}</strong>
+                </div>
+              )}
+            </div>
+            {errorMsg && <p style={{ color: "#dc2626", fontSize: "0.8rem", marginTop: "0.5rem" }}>{errorMsg}</p>}
+            <div style={{ display: "flex", gap: "0.75rem", marginTop: "1.25rem" }}>
+              <button onClick={() => setShowAddDebt(false)} className="btn-secondary" style={{ flex: 1, justifyContent: "center" }}>إلغاء</button>
+              <button onClick={handleAddDebt} disabled={saving || !debtAmount || Number(debtAmount) <= 0} className="btn-danger" style={{ flex: 2, justifyContent: "center" }}>
+                {saving ? "جارٍ الحفظ..." : "تأكيد إضافة الدين"}
               </button>
             </div>
           </div>
@@ -475,7 +580,7 @@ export default function CreditsPage() {
                       <div>
                         <div>
                           <span className={tx.type === "payment" ? "badge-green" : "badge-red"} style={{ fontSize: "0.7rem" }}>
-                            {tx.type === "payment" ? "دفعة" : tx.type === "purchase" ? "شراء" : "تعديل"}
+                            {tx.type === "payment" ? "دفعة" : tx.type === "purchase" ? "شراء" : "إضافة دين"}
                           </span>
                           <span style={{ fontSize: "0.75rem", color: "#374151", marginRight: "0.5rem", fontWeight: "600" }}>
                             {formatDateTime(tx.createdAt)}
@@ -526,15 +631,21 @@ export default function CreditsPage() {
               )}
             </div>
 
-            <div style={{ display: "flex", gap: "0.75rem", marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid #f3f4f6" }}>
+            <div style={{ display: "flex", gap: "0.75rem", marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid #f3f4f6", flexWrap: "wrap" }}>
+              <button onClick={() => openAddDebt(detailCustomer)} className="btn-secondary" style={{ flex: 1, justifyContent: "center", color: "#dc2626", borderColor: "#fecaca", minWidth: "120px" }}>
+                <TrendingUp size={14} /> إضافة دين
+              </button>
+              <button onClick={() => openPayment(detailCustomer)} className="btn-primary" style={{ flex: 1, justifyContent: "center", minWidth: "120px" }}>
+                <CreditCard size={14} /> تسجيل دفعة
+              </button>
               <button
                 onClick={() => handlePrintStatement(detailCustomer)}
                 className="btn-secondary"
-                style={{ flex: 1, justifyContent: "center" }}
+                style={{ flex: 1, justifyContent: "center", minWidth: "120px" }}
               >
                 <Printer size={14} /> طباعة الكشف
               </button>
-              <button onClick={() => setDetailCustomer(null)} className="btn-primary" style={{ flex: 1, justifyContent: "center" }}>
+              <button onClick={() => setDetailCustomer(null)} className="btn-primary" style={{ flex: 1, justifyContent: "center", minWidth: "120px" }}>
                 إغلاق
               </button>
             </div>

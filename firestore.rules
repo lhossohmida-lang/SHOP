@@ -65,6 +65,10 @@ service cloud.firestore {
         allow read, write: if isAuth();
       }
 
+      match /expenses/{expenseId} {
+        allow read, write: if isAuth();
+      }
+
       match /auditLog/{logId} {
         allow read, write: if isAuth();
       }

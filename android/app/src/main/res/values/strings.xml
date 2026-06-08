@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Blgasm POS</string>
-    <string name="title_activity_main">Blgasm POS</string>
+    <string name="app_name">بلقاسم</string>
+    <string name="title_activity_main">بلقاسم</string>
     <string name="package_name">com.blgasm.pos</string>
     <string name="custom_url_scheme">com.blgasm.pos</string>
 </resources>

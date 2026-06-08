@@ -4,9 +4,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { addProduct, updateProduct, deleteProduct } from "@/lib/firestore/products";
 import { formatCurrency } from "@/lib/utils/currency";
+import { printProductLabel } from "@/lib/utils/print";
 import { ProductForm } from "@/components/products/ProductForm";
 import type { ProductFormData, Product } from "@/types/product";
-import { Plus, Search, Edit2, Trash2, Package } from "lucide-react";
+import { Plus, Search, Edit2, Trash2, Package, Printer } from "lucide-react";
 
 export default function ProductsPage() {
   const { appUser } = useAuth();
@@ -50,6 +51,10 @@ export default function ProductsPage() {
 
   const handleDelete = (p: Product) => {
     setProductToDelete(p);
+  };
+
+  const handlePrintLabel = (p: Product) => {
+    printProductLabel(p.nameAr || p.name, p.sellingPrice);
   };
 
   return (
@@ -166,6 +171,14 @@ export default function ProductsPage() {
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <button
+                          onClick={() => handlePrintLabel(p)}
+                          className="btn-secondary"
+                          style={{ padding: "0.25rem 0.5rem" }}
+                          title="طباعة بطاقة السعر"
+                        >
+                          <Printer size={14} />
+                        </button>
                         <button
                           onClick={() => openEdit(p)}
                           className="btn-secondary"

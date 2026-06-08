@@ -179,7 +179,7 @@ function loadStartupError(error) {
   <body>
     <main>
       <h1>تعذر تشغيل السيرفر المحلي</h1>
-      <p>لم يتمكن تطبيق Blgasm POS من تشغيل نسخة Next.js المحلية داخل برنامج الحاسوب.</p>
+      <p>لم يتمكن تطبيق بلقاسم من تشغيل نسخة Next.js المحلية داخل برنامج الحاسوب.</p>
       <code>${message.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]))}</code>
     </main>
   </body>
@@ -251,7 +251,7 @@ async function createWindow() {
       webSecurity: false,
       allowRunningInsecureContent: true,
     },
-    title: "Blgasm POS",
+    title: "بلقاسم",
     backgroundColor: "#f8fdf5",
     show: false,
     autoHideMenuBar: true,

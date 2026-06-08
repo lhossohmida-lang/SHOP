@@ -319,6 +319,20 @@ tbody tr:last-child {
   color: #49a35c;
 }
 
+/* ML Kit barcode scanner — camera shows behind WebView */
+body.barcode-scanner-active {
+  visibility: hidden;
+  background: transparent !important;
+}
+
+body.barcode-scanner-active .barcode-scanner-modal {
+  visibility: visible;
+}
+
+.barcode-scanner-modal .scanner-overlay-bg {
+  background: transparent !important;
+}
+
 /* Print styles */
 @media print {
   .no-print { display: none !important; }

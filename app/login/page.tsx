@@ -1,8 +1,10 @@
 "use client";
 import { useState } from "react";
+import Image from "next/image";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
-import { ShoppingCart, Eye, EyeOff, Loader2 } from "lucide-react";
+import { LOGO_PATH, STORE_NAME } from "@/lib/constants/branding";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const { signIn } = useAuth();
@@ -64,17 +66,16 @@ export default function LoginPage() {
       >
         {/* Logo */}
         <div className="text-center mb-8">
-          <div
-            className="w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-4"
-            style={{
-              background: "linear-gradient(135deg, #49a35c, #26683a)",
-              boxShadow: "0 8px 24px rgba(73,163,92,0.35)",
-            }}
-          >
-            <ShoppingCart size={36} color="white" />
-          </div>
+          <Image
+            src={LOGO_PATH}
+            alt={STORE_NAME}
+            width={80}
+            height={80}
+            className="mx-auto mb-4"
+            style={{ borderRadius: "1rem", boxShadow: "0 8px 24px rgba(73,163,92,0.35)" }}
+          />
           <h1 className="text-3xl font-bold" style={{ color: "#17231c" }}>
-            Blgasm POS
+            {STORE_NAME}
           </h1>
           <p className="text-sm mt-1" style={{ color: "#49a35c" }}>
             نظام نقطة البيع الذكي
@@ -172,7 +173,7 @@ export default function LoginPage() {
         </form>
 
         <p className="text-center text-xs mt-6" style={{ color: "#9ca3af" }}>
-          Blgasm POS v1.0 • جميع الحقوق محفوظة
+          {STORE_NAME} v1.0 • جميع الحقوق محفوظة
         </p>
       </div>
     </div>

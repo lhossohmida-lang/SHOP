@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { STORE_NAME } from "@/lib/constants/branding";
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const systemPrompt = `أنت مساعد تحليلي ذكي لمتجر بقالة اسمه Blgasm POS. لديك وصول لبيانات المتجر التالية:
+    const systemPrompt = `أنت مساعد تحليلي ذكي لمتجر بقالة اسمه ${STORE_NAME}. لديك وصول لبيانات المتجر التالية:
 - ملخص المبيعات: ${context?.salesSummary || "غير متوفر"}
 - حالة المخزون: ${context?.inventorySummary || "غير متوفر"}
 - الكريديتيات (الديون): ${context?.creditsSummary || "غير متوفر"}
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-        "X-Title": "Blgasm POS",
+        "X-Title": STORE_NAME,
       },
       body: JSON.stringify({
         model: process.env.NEXT_PUBLIC_AI_MODEL || "google/gemini-2.5-flash",

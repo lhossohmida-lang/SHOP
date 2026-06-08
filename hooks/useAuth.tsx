@@ -9,6 +9,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { STORE_NAME } from "@/lib/constants/branding";
 import type { AppUser } from "@/types/user";
 
 interface AuthContextValue {
@@ -88,7 +89,7 @@ async function loadAppUser(firebaseUser: User): Promise<AppUser> {
   await setDoc(
     doc(db, "stores", fallback.storeId),
     {
-      name: "Blgasm POS Store",
+      name: `${STORE_NAME} Store`,
       address: "",
       phone: "",
       currency: "DZD",

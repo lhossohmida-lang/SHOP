@@ -1,7 +1,9 @@
 "use client";
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { LOGO_PATH, STORE_NAME, STORE_TAGLINE } from "@/lib/constants/branding";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { getPosShortcuts } from "@/lib/firestore/shortcuts";
@@ -16,7 +18,6 @@ import {
   BarChart3,
   Sparkles,
   LogOut,
-  Store,
   Zap,
 } from "lucide-react";
 
@@ -72,25 +73,18 @@ export default function Sidebar() {
           gap: "0.75rem",
         }}
       >
-        <div
-          style={{
-            width: "40px",
-            height: "40px",
-            borderRadius: "10px",
-            background: "linear-gradient(135deg, #49a35c, #26683a)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-          }}
-        >
-          <Store size={20} color="white" />
-        </div>
+        <Image
+          src={LOGO_PATH}
+          alt={STORE_NAME}
+          width={40}
+          height={40}
+          style={{ borderRadius: "10px", flexShrink: 0, objectFit: "cover" }}
+        />
         <div>
           <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "#17231c" }}>
-            Blgasm POS
+            {STORE_NAME}
           </div>
-          <div style={{ fontSize: "0.7rem", color: "#49a35c" }}>نقطة البيع</div>
+          <div style={{ fontSize: "0.7rem", color: "#49a35c" }}>{STORE_TAGLINE}</div>
         </div>
       </div>
 

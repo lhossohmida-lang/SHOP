@@ -1,22 +1,38 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
-import { BrowserMultiFormatReader } from "@zxing/browser";
-import { Camera, X, Loader2, RefreshCw, ZoomIn } from "lucide-react";
+import { Camera, X, Loader2, RefreshCw, Keyboard, ScanLine } from "lucide-react";
+import {
+  isMlKitSupported,
+  startMlKitScan,
+  scanWithMlKitDialog,
+  type MlKitScanSession,
+} from "@/lib/barcode/mlkitScanner";
+import { startZxingScan, type ZxingScanSession } from "@/lib/barcode/zxingScanner";
 
 interface BarcodeScannerProps {
   onScan: (barcode: string) => void;
   onClose: () => void;
 }
 
+async function isNativeApp(): Promise<boolean> {
+  const { Capacitor } = await import("@capacitor/core");
+  return Capacitor.isNativePlatform();
+}
+
 export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
-  const controlsRef = useRef<any>(null);
   const scannedRef = useRef(false);
-  const activeRef = useRef(true);
+  const mlKitSessionRef = useRef<MlKitScanSession | null>(null);
+  const zxingSessionRef = useRef<ZxingScanSession | null>(null);
+  const manualInputRef = useRef<HTMLInputElement>(null);
+  const autoLaunchDoneRef = useRef(false);
 
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-  const [errorMsg, setErrorMsg] = useState<string>("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [tab, setTab] = useState<"camera" | "manual">("camera");
+  const [useNativeCamera, setUseNativeCamera] = useState(false);
+  const [manualCode, setManualCode] = useState("");
+  const [manualError, setManualError] = useState("");
 
   const onScanRef = useRef(onScan);
   const onCloseRef = useRef(onClose);
@@ -25,94 +41,163 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
     onCloseRef.current = onClose;
   }, [onScan, onClose]);
 
-  const stopScanner = useCallback(() => {
-    if (controlsRef.current) {
-      try { controlsRef.current.stop(); } catch {}
-      controlsRef.current = null;
+  const stopSession = useCallback(async () => {
+    if (mlKitSessionRef.current) {
+      await mlKitSessionRef.current.stop();
+      mlKitSessionRef.current = null;
     }
-    try { BrowserMultiFormatReader.releaseAllStreams(); } catch {}
+    if (zxingSessionRef.current) {
+      zxingSessionRef.current.stop();
+      zxingSessionRef.current = null;
+    }
+    document.body.classList.remove("barcode-scanner-active");
   }, []);
 
-  const startScanner = useCallback(async () => {
+  const handleSuccess = useCallback(
+    async (code: string) => {
+      if (scannedRef.current) return;
+      scannedRef.current = true;
+      await stopSession();
+      onScanRef.current(code);
+      onCloseRef.current();
+    },
+    [stopSession]
+  );
+
+  const startInlineScan = useCallback(async () => {
     setStatus("loading");
     setErrorMsg("");
     scannedRef.current = false;
-    stopScanner();
+    await stopSession();
 
     try {
-      const { BrowserMultiFormatReader } = await import("@zxing/browser");
-      const { DecodeHintType, BarcodeFormat } = await import("@zxing/library");
+      const native = await isNativeApp();
 
-      // EAN-13 and EAN-8 only — optimized for retail grocery products
-      const hints = new Map();
-      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-        BarcodeFormat.EAN_13,
-        BarcodeFormat.EAN_8,
-      ]);
-      hints.set(DecodeHintType.TRY_HARDER, true);
-
-      const reader = new BrowserMultiFormatReader(hints, 200);
-      readerRef.current = reader;
-
-      const callback = (result: any) => {
-        if (!activeRef.current || scannedRef.current) return;
-        if (result) {
-          scannedRef.current = true;
-          const code = result.getText();
-          // Normalize: strip leading zeros if needed, return clean EAN code
-          onScanRef.current(code);
-          onCloseRef.current();
+      if (native) {
+        setUseNativeCamera(true);
+        const supported = await isMlKitSupported();
+        if (!supported) {
+          setErrorMsg("ML Kit غير مدعوم.\nاستخدم الإدخال اليدوي.");
+          setStatus("error");
+          return;
         }
-      };
 
-      // Use constraints for high-resolution back camera
-      const constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: { ideal: "environment" },
-          width:  { ideal: 1920, min: 640 },
-          height: { ideal: 1080, min: 480 },
-        },
-      };
+        const session = await startMlKitScan((code) => {
+          void handleSuccess(code);
+        });
+        mlKitSessionRef.current = session;
+        setStatus("ready");
+        return;
+      }
 
+      setUseNativeCamera(false);
+      await new Promise<void>((resolve) => {
+        const waitForVideo = () => {
+          if (videoRef.current) resolve();
+          else requestAnimationFrame(waitForVideo);
+        };
+        waitForVideo();
+      });
+
+      const session = await startZxingScan(videoRef.current!, (code) => {
+        void handleSuccess(code);
+      });
+      zxingSessionRef.current = session;
       setStatus("ready");
-
-      const controls = await reader.decodeFromConstraints(
-        constraints,
-        videoRef.current!,
-        callback
-      );
-      controlsRef.current = controls;
-
     } catch (e: unknown) {
-      if (!activeRef.current) return;
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes("Permission") || msg.includes("NotAllowed") || msg.includes("NotFound")) {
-        setErrorMsg("لم يتم السماح بالوصول للكاميرا.\nيرجى السماح في إعدادات التطبيق ثم أعد المحاولة.");
+      if (msg === "CAMERA_PERMISSION_DENIED") {
+        setErrorMsg("لم يُسمح بالوصول للكاميرا.");
+      } else if (msg.includes("Permission") || msg.includes("NotAllowed")) {
+        setErrorMsg("لم يُسمح بالوصول للكاميرا.\nاستخدم الإدخال اليدوي.");
       } else {
-        setErrorMsg("تعذر تشغيل الكاميرا:\n" + msg);
+        setErrorMsg("تعذر تشغيل الكاميرا.\nاستخدم الإدخال اليدوي.");
       }
       setStatus("error");
     }
-  }, [stopScanner]);
+  }, [stopSession, handleSuccess]);
+
+  const startAutoScan = useCallback(async () => {
+    if (autoLaunchDoneRef.current) return;
+    autoLaunchDoneRef.current = true;
+
+    setStatus("loading");
+
+    const native = await isNativeApp();
+    if (native) {
+      try {
+        const supported = await isMlKitSupported();
+        if (supported) {
+          const code = await scanWithMlKitDialog();
+          if (code) {
+            await handleSuccess(code);
+            return;
+          }
+        }
+      } catch {
+        // fall through to inline continuous scan
+      }
+    }
+
+    await startInlineScan();
+  }, [handleSuccess, startInlineScan]);
 
   useEffect(() => {
-    activeRef.current = true;
-    startScanner();
+    autoLaunchDoneRef.current = false;
+
+    if (tab === "camera") {
+      void startAutoScan();
+    } else {
+      void stopSession();
+      setTimeout(() => manualInputRef.current?.focus(), 100);
+    }
+
     return () => {
-      activeRef.current = false;
-      stopScanner();
+      void stopSession();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [tab, startAutoScan, stopSession]);
+
+  const handleClose = useCallback(() => {
+    void stopSession();
+    onCloseRef.current();
+  }, [stopSession]);
+
+  const submitManual = useCallback(() => {
+    const code = manualCode.replace(/\s/g, "").trim();
+    if (code.length === 0) {
+      setManualError("أدخل رقم الباركود");
+      return;
+    }
+    if (!/^\d+$/.test(code)) {
+      setManualError("يجب أن يحتوي على أرقام فقط");
+      return;
+    }
+    if (code.length < 8) {
+      setManualError(`رقم قصير جداً (${code.length} أرقام)`);
+      return;
+    }
+    setManualError("");
+    onScanRef.current(code);
+    onCloseRef.current();
+  }, [manualCode]);
+
+  useEffect(() => {
+    const clean = manualCode.replace(/\s/g, "");
+    if (/^\d{8}$/.test(clean) || /^\d{12}$/.test(clean) || /^\d{13}$/.test(clean)) {
+      setManualError("");
+      onScanRef.current(clean);
+      onCloseRef.current();
+    }
+  }, [manualCode]);
 
   return (
     <div
-      className="modal-overlay"
-      style={{ zIndex: 100 }}
-      onClick={onClose}
+      className={`modal-overlay barcode-scanner-modal ${useNativeCamera ? "scanner-overlay-bg" : ""}`}
+      style={{ zIndex: 100, background: useNativeCamera && tab === "camera" ? "transparent" : undefined }}
+      onClick={handleClose}
     >
       <div
-        className="card animate-slide-up"
+        className="card animate-slide-up barcode-scanner-modal"
         style={{
           width: "100%",
           maxWidth: "440px",
@@ -120,156 +205,152 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
           display: "flex",
           flexDirection: "column",
           gap: "0.875rem",
+          background: useNativeCamera && tab === "camera" ? "rgba(255,255,255,0.92)" : undefined,
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h3 style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: "0.5rem", margin: 0 }}>
             <Camera size={20} color="#49a35c" />
-            مسح باركود EAN
+            مسح الباركود
           </h3>
-          <button
-            onClick={onClose}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", padding: "0.25rem" }}
-          >
+          <button onClick={handleClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", padding: "0.25rem" }}>
             <X size={20} />
           </button>
         </div>
 
-        {/* Camera viewport */}
-        <div
-          style={{
-            position: "relative",
-            borderRadius: "0.75rem",
-            overflow: "hidden",
-            background: "#111",
-            aspectRatio: "4/3",
-            width: "100%",
-          }}
-        >
-          {/* Always-mounted video element — must stay in DOM for ZXing to attach */}
-          <video
-            ref={videoRef}
-            style={{
-              position: "absolute",
-              inset: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              display: "block",
-            }}
-            autoPlay
-            playsInline
-            muted
-          />
-
-          {/* Scan window overlay — horizontal rectangle matching EAN-13 shape */}
-          {status === "ready" && (
-            <>
-              {/* Dark masks top/bottom */}
-              <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
-                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "28%", background: "rgba(0,0,0,0.55)" }} />
-                <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "28%", background: "rgba(0,0,0,0.55)" }} />
-                <div style={{ position: "absolute", top: "28%", bottom: "28%", left: 0, width: "8%", background: "rgba(0,0,0,0.55)" }} />
-                <div style={{ position: "absolute", top: "28%", bottom: "28%", right: 0, width: "8%", background: "rgba(0,0,0,0.55)" }} />
-              </div>
-
-              {/* Scan window border */}
-              <div style={{
-                position: "absolute",
-                top: "28%", bottom: "28%",
-                left: "8%", right: "8%",
-                border: "2px solid rgba(73,163,92,0.9)",
-                borderRadius: "6px",
-                pointerEvents: "none",
-              }} />
-
-              {/* Animated scan line inside window */}
-              <div style={{
-                position: "absolute",
-                left: "8%",
-                right: "8%",
-                height: "2px",
-                background: "linear-gradient(90deg, transparent, #49a35c, transparent)",
-                boxShadow: "0 0 10px rgba(73,163,92,0.8)",
-                animation: "eanScan 1.8s ease-in-out infinite",
-                pointerEvents: "none",
-                top: "28%",
-              }} />
-
-              {/* Corner accents */}
-              {[
-                { top: "calc(28% - 1px)", left: "calc(8% - 1px)", borderTop: "3px solid #49a35c", borderLeft: "3px solid #49a35c", borderRadius: "4px 0 0 0" },
-                { top: "calc(28% - 1px)", right: "calc(8% - 1px)", borderTop: "3px solid #49a35c", borderRight: "3px solid #49a35c", borderRadius: "0 4px 0 0" },
-                { bottom: "calc(28% - 1px)", left: "calc(8% - 1px)", borderBottom: "3px solid #49a35c", borderLeft: "3px solid #49a35c", borderRadius: "0 0 0 4px" },
-                { bottom: "calc(28% - 1px)", right: "calc(8% - 1px)", borderBottom: "3px solid #49a35c", borderRight: "3px solid #49a35c", borderRadius: "0 0 4px 0" },
-              ].map((s, i) => (
-                <div key={i} style={{ position: "absolute", width: "22px", height: "22px", pointerEvents: "none", ...s }} />
-              ))}
-            </>
-          )}
-
-          {/* Loading overlay */}
-          {status === "loading" && (
-            <div style={{
-              position: "absolute", inset: 0,
-              background: "rgba(0,0,0,0.85)",
-              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-              color: "#49a35c", gap: "0.75rem",
-            }}>
-              <Loader2 size={36} className="animate-spin" />
-              <p style={{ fontSize: "0.875rem", margin: 0, color: "#d1fae5" }}>جارٍ تشغيل الكاميرا...</p>
-            </div>
-          )}
-
-          {/* Error overlay */}
-          {status === "error" && (
-            <div style={{
-              position: "absolute", inset: 0,
-              background: "rgba(0,0,0,0.9)",
-              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-              padding: "1.5rem", gap: "1rem", textAlign: "center",
-            }}>
-              <div style={{ fontSize: "2rem" }}>📷</div>
-              <p style={{ color: "#fca5a5", fontSize: "0.85rem", margin: 0, whiteSpace: "pre-line", lineHeight: 1.7 }}>
-                {errorMsg}
-              </p>
-              <button
-                onClick={startScanner}
-                style={{
-                  display: "flex", alignItems: "center", gap: "0.4rem",
-                  padding: "0.6rem 1.25rem", borderRadius: "0.5rem",
-                  background: "#26683a", color: "white", border: "none",
-                  cursor: "pointer", fontWeight: 600, fontSize: "0.875rem",
-                }}
-              >
-                <RefreshCw size={15} />
-                إعادة المحاولة
-              </button>
-            </div>
-          )}
+        <div style={{ display: "flex", borderRadius: "0.5rem", overflow: "hidden", border: "1px solid #e5e7eb" }}>
+          {(["camera", "manual"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              style={{
+                flex: 1, padding: "0.55rem", border: "none", cursor: "pointer",
+                fontWeight: tab === t ? 700 : 400, fontSize: "0.82rem",
+                background: tab === t ? "#26683a" : "white",
+                color: tab === t ? "white" : "#6b7280",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: "0.35rem",
+              }}
+            >
+              {t === "camera" ? <><Camera size={14} /> كاميرا</> : <><Keyboard size={14} /> إدخال يدوي</>}
+            </button>
+          ))}
         </div>
 
-        {/* Hint text */}
-        {status === "ready" && (
-          <div style={{ textAlign: "center" }}>
-            <p style={{ fontSize: "0.78rem", color: "#6b7280", margin: 0, lineHeight: 1.6 }}>
-              <ZoomIn size={12} style={{ display: "inline", marginLeft: "0.25rem", verticalAlign: "middle" }} />
-              وجّه الكاميرا نحو الباركود واجعله داخل الإطار الأخضر
-            </p>
-            <p style={{ fontSize: "0.7rem", color: "#9ca3af", margin: "0.25rem 0 0", fontFamily: "monospace" }}>
-              EAN-13 · EAN-8
-            </p>
+        {tab === "camera" && (
+          <>
+            <div
+              className="barcode-scanner-modal"
+              style={{
+                position: "relative",
+                borderRadius: "0.75rem",
+                overflow: "hidden",
+                background: useNativeCamera ? "transparent" : "#111",
+                aspectRatio: "4/3",
+                width: "100%",
+              }}
+            >
+              <video
+                ref={videoRef}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  display: useNativeCamera ? "none" : "block",
+                }}
+                autoPlay
+                playsInline
+                muted
+              />
+
+              {status === "ready" && (
+                <>
+                  <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+                    <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "30%", background: "rgba(0,0,0,0.45)" }} />
+                    <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: "30%", background: "rgba(0,0,0,0.45)" }} />
+                    <div style={{ position: "absolute", top: "30%", bottom: "30%", left: 0, width: "6%", background: "rgba(0,0,0,0.45)" }} />
+                    <div style={{ position: "absolute", top: "30%", bottom: "30%", right: 0, width: "6%", background: "rgba(0,0,0,0.45)" }} />
+                  </div>
+                  <div style={{ position: "absolute", top: "30%", bottom: "30%", left: "6%", right: "6%", border: "2px solid rgba(73,163,92,0.95)", borderRadius: "6px", pointerEvents: "none" }} />
+                  <div style={{ position: "absolute", left: "6%", right: "6%", height: "2px", background: "linear-gradient(90deg,transparent,#49a35c,transparent)", boxShadow: "0 0 10px rgba(73,163,92,0.8)", animation: "eanScan 1.8s ease-in-out infinite", pointerEvents: "none", top: "30%" }} />
+                </>
+              )}
+
+              {status === "loading" && (
+                <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#49a35c", gap: "0.75rem", borderRadius: "0.75rem" }}>
+                  <Loader2 size={36} className="animate-spin" />
+                  <p style={{ fontSize: "0.875rem", margin: 0, color: "#d1fae5" }}>جارٍ تشغيل الماسح التلقائي...</p>
+                </div>
+              )}
+
+              {status === "error" && (
+                <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.9)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "1.5rem", gap: "0.75rem", textAlign: "center", borderRadius: "0.75rem" }}>
+                  <div style={{ fontSize: "2rem" }}>📷</div>
+                  <p style={{ color: "#fca5a5", fontSize: "0.82rem", margin: 0, whiteSpace: "pre-line", lineHeight: 1.7 }}>{errorMsg}</p>
+                  <button onClick={() => { autoLaunchDoneRef.current = false; void startAutoScan(); }} style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.5rem 1rem", borderRadius: "0.5rem", background: "#26683a", color: "white", border: "none", cursor: "pointer", fontWeight: 600, fontSize: "0.82rem" }}>
+                    <RefreshCw size={14} /> إعادة المحاولة
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {status === "ready" && (
+              <p style={{ fontSize: "0.78rem", color: "#6b7280", margin: 0, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.25rem" }}>
+                <ScanLine size={14} color="#49a35c" />
+                القراءة تلقائية — وجّه الباركود داخل الإطار وسيُضاف المنتج فوراً
+              </p>
+            )}
+          </>
+        )}
+
+        {tab === "manual" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "0.625rem", padding: "0.75rem 1rem", fontSize: "0.8rem", color: "#15803d", lineHeight: 1.7 }}>
+              📦 أدخل الأرقام المطبوعة <strong>أسفل الباركود</strong> — يُضاف تلقائياً عند اكتمال الرقم
+            </div>
+
+            <div style={{ position: "relative" }}>
+              <input
+                ref={manualInputRef}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={14}
+                placeholder="أدخل رقم الباركود..."
+                value={manualCode}
+                onChange={(e) => {
+                  setManualCode(e.target.value.replace(/\D/g, ""));
+                  setManualError("");
+                }}
+                onKeyDown={(e) => { if (e.key === "Enter") submitManual(); }}
+                style={{
+                  width: "100%", boxSizing: "border-box",
+                  padding: "0.875rem 1rem",
+                  fontSize: "1.5rem", fontFamily: "monospace", fontWeight: 700,
+                  letterSpacing: "0.15em", textAlign: "center",
+                  border: `2px solid ${manualError ? "#fca5a5" : manualCode.length >= 8 ? "#49a35c" : "#e5e7eb"}`,
+                  borderRadius: "0.625rem", outline: "none",
+                  background: manualCode.length >= 8 ? "#f0fdf4" : "white",
+                  color: "#17231c",
+                }}
+                autoFocus
+              />
+            </div>
+
+            {manualError && (
+              <p style={{ color: "#dc2626", fontSize: "0.8rem", margin: 0, textAlign: "center" }}>⚠️ {manualError}</p>
+            )}
           </div>
         )}
       </div>
 
       <style>{`
         @keyframes eanScan {
-          0%   { top: calc(28% + 4px);  opacity: 0.6; }
-          50%  { top: calc(72% - 6px);  opacity: 1; }
-          100% { top: calc(28% + 4px);  opacity: 0.6; }
+          0%   { top: calc(30% + 4px); opacity: 0.6; }
+          50%  { top: calc(70% - 6px); opacity: 1; }
+          100% { top: calc(30% + 4px); opacity: 0.6; }
         }
       `}</style>
     </div>

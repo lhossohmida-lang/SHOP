@@ -5,6 +5,7 @@ import { useProducts } from "@/hooks/useProducts";
 import { useSales } from "@/hooks/useSales";
 import { useCredits } from "@/hooks/useCredits";
 import { formatCurrency } from "@/lib/utils/currency";
+import { STORE_NAME } from "@/lib/constants/branding";
 import { Sparkles, Send, Loader2, RefreshCw } from "lucide-react";
 
 interface Message {
@@ -27,7 +28,7 @@ export default function AiPage() {
   const { customers, totalDebt } = useCredits(storeId);
 
   const [messages, setMessages] = useState<Message[]>([
-    { role: "assistant", content: "مرحباً! أنا مساعدك الذكي لمتجر Blgasm POS. يمكنني تحليل بيانات مبيعاتك ومخزونك وديون عملائك. كيف يمكنني مساعدتك؟ 🌿" }
+    { role: "assistant", content: `مرحباً! أنا مساعدك الذكي لمتجر ${STORE_NAME}. يمكنني تحليل بيانات مبيعاتك ومخزونك وديون عملائك. كيف يمكنني مساعدتك؟ 🌿` }
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -71,7 +72,7 @@ export default function AiPage() {
         return;
       }
 
-      const systemPrompt = `أنت مساعد تحليلي ذكي لمتجر بقالة اسمه Blgasm POS. لديك وصول لبيانات المتجر التالية:\n- ملخص المبيعات: ${ctx.salesSummary || "غير متوفر"}\n- حالة المخزون: ${ctx.inventorySummary || "غير متوفر"}\n- الكريديتيات (الديون): ${ctx.creditsSummary || "غير متوفر"}\n- أكثر المنتجات مبيعاً: ${ctx.topProducts || "غير متوفر"}\n\nأجب دائماً باللغة العربية بشكل موجز وعملي ومفيد. استخدم الأرقام والبيانات المتاحة في إجاباتك.`;
+      const systemPrompt = `أنت مساعد تحليلي ذكي لمتجر بقالة اسمه ${STORE_NAME}. لديك وصول لبيانات المتجر التالية:\n- ملخص المبيعات: ${ctx.salesSummary || "غير متوفر"}\n- حالة المخزون: ${ctx.inventorySummary || "غير متوفر"}\n- الكريديتيات (الديون): ${ctx.creditsSummary || "غير متوفر"}\n- أكثر المنتجات مبيعاً: ${ctx.topProducts || "غير متوفر"}\n\nأجب دائماً باللغة العربية بشكل موجز وعملي ومفيد. استخدم الأرقام والبيانات المتاحة في إجاباتك.`;
 
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
@@ -79,7 +80,7 @@ export default function AiPage() {
           "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json",
           "HTTP-Referer": typeof window !== "undefined" ? window.location.origin : "http://localhost:3000",
-          "X-Title": "Blgasm POS",
+          "X-Title": STORE_NAME,
         },
         body: JSON.stringify({
           model,

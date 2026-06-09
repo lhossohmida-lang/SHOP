@@ -16,8 +16,8 @@ export function usePosCart() {
   const [discountValue, setDiscountValue] = useState<number>(0);
   const [discountPct, setDiscountPct] = useState<number>(0);
 
-  const addProduct = useCallback((p: Product) => {
-    if (p.stock === 0) return;
+  const addProduct = useCallback((p: Product): boolean => {
+    if (p.stock <= 0) return false;
     setLines(prev => {
       const idx = prev.findIndex(l => l.productId === p.id);
       if (idx >= 0) {
@@ -34,6 +34,7 @@ export function usePosCart() {
         quantity: 1,
       }];
     });
+    return true;
   }, []);
 
   const updateQty = useCallback((productId: string, qty: number) => {

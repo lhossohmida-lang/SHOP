@@ -9,9 +9,9 @@ import { formatDateTime } from "./date";
 const RECEIPT_PAGE = "88mm 100mm";
 const RECEIPT_WINDOW = { width: 333, height: 378 };
 
-/** Small product label paper size */
-const LABEL_PAGE = "33mm 55mm";
-const LABEL_WINDOW = { width: 125, height: 208 };
+/** Small product label paper size — 40mm wide × 20mm tall, landscape */
+const LABEL_PAGE = "40mm 20mm";
+const LABEL_WINDOW = { width: 151, height: 76 };
 
 async function executePrint(
   html: string,
@@ -86,48 +86,52 @@ export function printProductLabel(
     @page { size: ${LABEL_PAGE}; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
-      width: 33mm;
-      height: 55mm;
+      width: 40mm;
+      height: 20mm;
       overflow: hidden;
       font-family: Tahoma, Arial, sans-serif;
       direction: rtl;
     }
     body {
       display: flex;
-      flex-direction: column;
+      flex-direction: row;
       align-items: center;
-      justify-content: center;
-      padding: 2mm;
+      justify-content: space-between;
+      gap: 1mm;
+      padding: 1mm 2mm;
       text-align: center;
     }
     .name {
-      font-size: 7pt;
+      font-size: 6pt;
       font-weight: bold;
       color: #17231c;
-      line-height: 1.25;
-      max-height: 16mm;
+      line-height: 1.2;
+      max-width: 12mm;
       overflow: hidden;
       word-break: break-word;
+      flex-shrink: 0;
     }
     .barcode-wrap {
-      margin-top: 1mm;
-      width: 100%;
+      flex: 1;
       display: flex;
       justify-content: center;
+      align-items: center;
+      min-width: 0;
     }
     .barcode-wrap svg {
-      max-width: 29mm;
+      max-width: 22mm;
+      max-height: 14mm;
       height: auto;
     }
     .price {
-      margin-top: 1mm;
-      font-size: 10pt;
+      font-size: 8pt;
       font-weight: bold;
       color: #26683a;
       white-space: nowrap;
+      flex-shrink: 0;
     }
     @media print {
-      html, body { width: 33mm; height: 55mm; }
+      html, body { width: 40mm; height: 20mm; }
     }
   </style>
 </head>
@@ -159,43 +163,47 @@ const labelPageStyles = `
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { font-family: Tahoma, Arial, sans-serif; direction: rtl; }
     .label-page {
-      width: 33mm;
-      height: 55mm;
+      width: 40mm;
+      height: 20mm;
       overflow: hidden;
       display: flex;
-      flex-direction: column;
+      flex-direction: row;
       align-items: center;
-      justify-content: center;
-      padding: 2mm;
+      justify-content: space-between;
+      gap: 1mm;
+      padding: 1mm 2mm;
       text-align: center;
       page-break-after: always;
     }
     .label-page:last-child { page-break-after: auto; }
     .name {
-      font-size: 7pt;
+      font-size: 6pt;
       font-weight: bold;
       color: #17231c;
-      line-height: 1.25;
-      max-height: 16mm;
+      line-height: 1.2;
+      max-width: 12mm;
       overflow: hidden;
       word-break: break-word;
+      flex-shrink: 0;
     }
     .barcode-wrap {
-      margin-top: 1mm;
-      width: 100%;
+      flex: 1;
       display: flex;
       justify-content: center;
+      align-items: center;
+      min-width: 0;
     }
     .barcode-wrap svg {
-      max-width: 29mm;
+      max-width: 22mm;
+      max-height: 14mm;
       height: auto;
     }
     .price {
-      margin-top: 1mm;
-      font-size: 10pt;
+      font-size: 8pt;
       font-weight: bold;
       color: #26683a;
       white-space: nowrap;
+      flex-shrink: 0;
     }
 `;
 

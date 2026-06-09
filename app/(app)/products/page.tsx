@@ -9,6 +9,27 @@ import { ProductForm } from "@/components/products/ProductForm";
 import type { ProductFormData, Product } from "@/types/product";
 import { Plus, Search, Edit2, Trash2, Package, Printer, CheckSquare, Square, X } from "lucide-react";
 
+function getDuplicateProductError(
+  products: Product[],
+  data: ProductFormData,
+  editingId?: string
+): string | null {
+  const nameAr = data.nameAr.trim().toLowerCase();
+  const barcode = data.barcode.trim();
+
+  for (const p of products) {
+    if (editingId && p.id === editingId) continue;
+
+    if (nameAr && p.nameAr.trim().toLowerCase() === nameAr) {
+      return `المنتج "${data.nameAr.trim()}" موجود أصلاً ولا يمكن إضافته من جديد.`;
+    }
+    if (barcode && p.barcode.trim() === barcode) {
+      return `الباركود "${barcode}" مستخدم لمنتج "${p.nameAr || p.name}" ولا يمكن إضافته من جديد.`;
+    }
+  }
+  return null;
+}
+
 export default function ProductsPage() {
   const { appUser } = useAuth();
   const storeId = appUser?.storeId;
@@ -80,16 +101,32 @@ export default function ProductsPage() {
 
   const handleSave = async (data: ProductFormData) => {
     if (!storeId) return;
+
+    const duplicateError = getDuplicateProductError(products, data, editingProduct?.id);
+    if (duplicateError) {
+      alert(duplicateError);
+      return;
+    }
+
     setSaving(true);
+    const saveOp = editingProduct
+      ? updateProduct(storeId, editingProduct.id, data)
+      : addProduct(storeId, data);
+
     try {
-      if (editingProduct) {
-        await updateProduct(storeId, editingProduct.id, data);
-      } else {
-        await addProduct(storeId, data);
+      if (!navigator.onLine) {
+        await Promise.race([saveOp, new Promise((resolve) => setTimeout(resolve, 1500))]);
+        closeForm();
+        return;
       }
+      await saveOp;
       closeForm();
     } catch (e) {
-      alert("خطأ في الحفظ: " + e);
+      if (!navigator.onLine) {
+        closeForm();
+      } else {
+        alert("خطأ في الحفظ: " + e);
+      }
     } finally {
       setSaving(false);
     }

@@ -40,6 +40,20 @@ export default function PosPage() {
 
   const searchRef = useRef<HTMLInputElement>(null);
 
+  const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
+
+  const tryAddProduct = useCallback((p: Product) => {
+    if (p.stock <= 0) {
+      showMsg("❌ المنتج نفد من المخزون ولا يمكن إدخاله");
+      return false;
+    }
+    if (!addProduct(p)) {
+      showMsg("❌ المنتج نفد من المخزون ولا يمكن إدخاله");
+      return false;
+    }
+    return true;
+  }, [addProduct]);
+
   useEffect(() => { searchRef.current?.focus(); }, []);
 
   // Listen for sidebar shortcut addition
@@ -47,12 +61,12 @@ export default function PosPage() {
     const handleShortcutAdd = (e: Event) => {
       const p = (e as CustomEvent).detail as Product;
       if (p) {
-        addProduct(p);
+        tryAddProduct(p);
       }
     };
     window.addEventListener("add-shortcut-product", handleShortcutAdd);
     return () => window.removeEventListener("add-shortcut-product", handleShortcutAdd);
-  }, [addProduct]);
+  }, [tryAddProduct]);
 
   // F1 → open new POS window
   useEffect(() => {
@@ -77,14 +91,13 @@ export default function PosPage() {
 
   const handleBarcode = useCallback((code: string) => {
     const p = activeProducts.find(p => p.barcode === code.trim());
-    if (p) { addProduct(p); setSearch(""); setShowDropdown(false); }
-    else { setSearch(code); setShowDropdown(true); }
+    if (p) {
+      if (tryAddProduct(p)) { setSearch(""); setShowDropdown(false); }
+    } else { setSearch(code); setShowDropdown(true); }
     setShowCamera(false);
-  }, [activeProducts, addProduct]);
+  }, [activeProducts, tryAddProduct]);
 
   useUsbScanner(handleBarcode, !showCamera && !showCreditPanel);
-
-  const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
   const processLines = () =>
     cart.lines
@@ -262,17 +275,19 @@ export default function PosPage() {
                 if (trimmed) {
                   const exactProduct = activeProducts.find(p => p.barcode === trimmed);
                   if (exactProduct) {
-                    addProduct(exactProduct);
-                    setSearch("");
-                    setShowDropdown(false);
+                    if (tryAddProduct(exactProduct)) {
+                      setSearch("");
+                      setShowDropdown(false);
+                    }
                     e.preventDefault();
                     return;
                   }
                 }
                 if (suggestions.length > 0) {
-                  addProduct(suggestions[0]);
-                  setSearch("");
-                  setShowDropdown(false);
+                  if (tryAddProduct(suggestions[0])) {
+                    setSearch("");
+                    setShowDropdown(false);
+                  }
                   e.preventDefault();
                 }
               }
@@ -293,7 +308,7 @@ export default function PosPage() {
               boxShadow: "0 8px 24px rgba(0,0,0,0.1)", marginTop: "4px", maxHeight: "220px", overflowY: "auto"
             }}>
               {suggestions.map(p => (
-                <button key={p.id} onMouseDown={() => { cart.addProduct(p); setSearch(""); setShowDropdown(false); }}
+                <button key={p.id} onMouseDown={() => { if (tryAddProduct(p)) { setSearch(""); setShowDropdown(false); } }}
                   style={{
                     width: "100%", padding: "0.6rem 0.875rem", background: "none", border: "none",
                     textAlign: "right", cursor: "pointer", display: "flex", justifyContent: "space-between",

@@ -10,6 +10,7 @@ import {
   limit,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { sanitizeFirestoreData } from "@/lib/firestore/helpers";
 import type { Purchase } from "@/types/purchase";
 
 function toPurchase(id: string, data: Record<string, unknown>): Purchase {
@@ -39,11 +40,14 @@ export async function addPurchase(
   storeId: string,
   data: Omit<Purchase, "id" | "createdAt">
 ): Promise<string> {
-  const ref = await addDoc(purchasesCol(storeId), {
+  const ref = await addDoc(purchasesCol(storeId), sanitizeFirestoreData({
     ...data,
+    invoiceNumber: data.invoiceNumber || "",
+    note: data.note || "",
+    supplierId: data.supplierId || "",
     storeId,
     createdAt: serverTimestamp(),
-  });
+  }));
   return ref.id;
 }
 

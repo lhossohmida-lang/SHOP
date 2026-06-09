@@ -3,6 +3,7 @@ import { useState, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { addProduct, updateProduct, deleteProduct } from "@/lib/firestore/products";
+import { isOffline, offlineAwareAwait } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
 import { printProductLabel, printProductLabelsBatch } from "@/lib/utils/print";
 import { ProductForm } from "@/components/products/ProductForm";
@@ -114,15 +115,10 @@ export default function ProductsPage() {
       : addProduct(storeId, data);
 
     try {
-      if (!navigator.onLine) {
-        await Promise.race([saveOp, new Promise((resolve) => setTimeout(resolve, 1500))]);
-        closeForm();
-        return;
-      }
-      await saveOp;
+      await offlineAwareAwait(saveOp);
       closeForm();
     } catch (e) {
-      if (!navigator.onLine) {
+      if (isOffline()) {
         closeForm();
       } else {
         alert("خطأ في الحفظ: " + e);

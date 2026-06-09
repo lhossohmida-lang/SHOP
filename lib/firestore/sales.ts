@@ -8,6 +8,7 @@ import {
   Timestamp,
   where,
   getDocs,
+  getDocsFromCache,
   limit,
   doc,
   deleteDoc,
@@ -15,6 +16,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { sanitizeFirestoreData } from "@/lib/firestore/helpers";
 import type { Sale } from "@/types/sale";
 
 function toSale(id: string, data: Record<string, unknown>): Sale {
@@ -46,11 +48,14 @@ export function salesCol(storeId: string) {
 }
 
 export async function addSale(storeId: string, data: Omit<Sale, "id" | "createdAt">): Promise<string> {
-  const ref = await addDoc(salesCol(storeId), {
+  const ref = await addDoc(salesCol(storeId), sanitizeFirestoreData({
     ...data,
+    customerId: data.customerId || "",
+    customerName: data.customerName || "",
+    note: data.note || "",
     storeId,
     createdAt: serverTimestamp(),
-  });
+  }));
   return ref.id;
 }
 
@@ -77,19 +82,44 @@ export async function getSalesToday(storeId: string): Promise<Sale[]> {
   return snap.docs.map((d) => toSale(d.id, d.data()));
 }
 
-export async function getSalesByDateRange(
+function filterSalesByDate(sales: Sale[], start: Date, end: Date): Sale[] {
+  return sales.filter((s) => s.createdAt >= start && s.createdAt <= end);
+}
+
+async function querySalesOfflineFirst(
   storeId: string,
   start: Date,
   end: Date
 ): Promise<Sale[]> {
-  const q = query(
+  const rangeQuery = query(
     salesCol(storeId),
     where("createdAt", ">=", start),
     where("createdAt", "<=", end),
     orderBy("createdAt", "desc")
   );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => toSale(d.id, d.data()));
+
+  try {
+    const snap = typeof navigator !== "undefined" && !navigator.onLine
+      ? await getDocsFromCache(rangeQuery)
+      : await getDocs(rangeQuery);
+    return snap.docs.map((d) => toSale(d.id, d.data()));
+  } catch {
+    const allQuery = query(salesCol(storeId), orderBy("createdAt", "desc"));
+    const snap = await getDocsFromCache(allQuery);
+    return filterSalesByDate(
+      snap.docs.map((d) => toSale(d.id, d.data())),
+      start,
+      end
+    );
+  }
+}
+
+export async function getSalesByDateRange(
+  storeId: string,
+  start: Date,
+  end: Date
+): Promise<Sale[]> {
+  return querySalesOfflineFirst(storeId, start, end);
 }
 
 export async function deleteSaleAndRestoreStock(storeId: string, sale: Sale): Promise<void> {

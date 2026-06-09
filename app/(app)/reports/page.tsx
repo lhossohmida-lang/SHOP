@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getSalesByDateRange, deleteSaleAndRestoreStock } from "@/lib/firestore/sales";
 import { getExpensesByDateRange } from "@/lib/firestore/expenses";
+import { isOffline, offlineAwareAwait } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDateTime } from "@/lib/utils/date";
 import { BarChart3, Download, Search, Trash2, Receipt } from "lucide-react";
@@ -29,15 +30,26 @@ export default function ReportsPage() {
     try {
       const start = new Date(startDate); start.setHours(0, 0, 0, 0);
       const end = new Date(endDate); end.setHours(23, 59, 59, 999);
+      const load = async <T,>(fn: () => Promise<T>, fallback: T): Promise<T> => {
+        if (!isOffline()) return fn();
+        return (await offlineAwareAwait(fn(), 5000)) ?? fallback;
+      };
+
       const [salesData, expensesData] = await Promise.all([
-        getSalesByDateRange(storeId, start, end),
-        getExpensesByDateRange(storeId, start, end),
+        load(() => getSalesByDateRange(storeId, start, end), []),
+        load(() => getExpensesByDateRange(storeId, start, end), []),
       ]);
       setSales(salesData);
       setExpenses(expensesData);
       setFetched(true);
-    } catch (e) { alert("خطأ: " + e); }
-    finally { setLoading(false); }
+      if (isOffline() && salesData.length === 0 && expensesData.length === 0) {
+        alert("لا توجد بيانات محفوظة محلياً لهذه الفترة. افتح التقارير مرة واحدة وأنت متصل بالإنترنت لحفظها.");
+      }
+    } catch (e) {
+      alert(isOffline() ? "تعذر تحميل التقرير من الذاكرة المحلية. تأكد من فتح التقارير سابقاً وأنت متصل." : "خطأ: " + e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDeleteSale = async (sale: Sale) => {

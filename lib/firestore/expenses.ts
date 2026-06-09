@@ -9,9 +9,11 @@ import {
   serverTimestamp,
   Timestamp,
   getDocs,
+  getDocsFromCache,
   where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { sanitizeFirestoreData } from "@/lib/firestore/helpers";
 import type { Expense } from "@/types/expense";
 
 function toExpense(id: string, data: Record<string, unknown>): Expense {
@@ -45,7 +47,7 @@ export async function addExpense(
     createdAt?: Date;
   }
 ): Promise<string> {
-  const ref = await addDoc(expensesCol(storeId), {
+  const ref = await addDoc(expensesCol(storeId), sanitizeFirestoreData({
     title: data.title.trim(),
     amount: data.amount,
     note: data.note?.trim() || "",
@@ -53,7 +55,7 @@ export async function addExpense(
     createdBy: data.createdBy,
     createdByName: data.createdByName || "",
     createdAt: data.createdAt || serverTimestamp(),
-  });
+  }));
   return ref.id;
 }
 
@@ -71,17 +73,34 @@ export function subscribeExpenses(
   });
 }
 
+function filterExpensesByDate(expenses: Expense[], start: Date, end: Date): Expense[] {
+  return expenses.filter((e) => e.createdAt >= start && e.createdAt <= end);
+}
+
 export async function getExpensesByDateRange(
   storeId: string,
   start: Date,
   end: Date
 ): Promise<Expense[]> {
-  const q = query(
+  const rangeQuery = query(
     expensesCol(storeId),
     where("createdAt", ">=", Timestamp.fromDate(start)),
     where("createdAt", "<=", Timestamp.fromDate(end)),
     orderBy("createdAt", "desc")
   );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => toExpense(d.id, d.data()));
+
+  try {
+    const snap = typeof navigator !== "undefined" && !navigator.onLine
+      ? await getDocsFromCache(rangeQuery)
+      : await getDocs(rangeQuery);
+    return snap.docs.map((d) => toExpense(d.id, d.data()));
+  } catch {
+    const allQuery = query(expensesCol(storeId), orderBy("createdAt", "desc"));
+    const snap = await getDocsFromCache(allQuery);
+    return filterExpensesByDate(
+      snap.docs.map((d) => toExpense(d.id, d.data())),
+      start,
+      end
+    );
+  }
 }

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useExpenses } from "@/hooks/useExpenses";
 import { addExpense, deleteExpense } from "@/lib/firestore/expenses";
+import { isOffline, offlineAwareAwait } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDateTime } from "@/lib/utils/date";
 import { Plus, X, Trash2, Receipt } from "lucide-react";
@@ -44,17 +45,22 @@ export default function ExpensesPanel() {
     setSaving(true);
     setErrorMsg("");
     try {
-      await addExpense(storeId, {
+      await offlineAwareAwait(addExpense(storeId, {
         title: title.trim(),
         amount: Number(amount),
         note: note.trim(),
         createdBy: appUser!.uid,
         createdByName: appUser!.displayName,
         createdAt: new Date(expenseDate),
-      });
+      }));
       setShowForm(false);
       resetForm();
     } catch (e: unknown) {
+      if (isOffline()) {
+        setShowForm(false);
+        resetForm();
+        return;
+      }
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMsg("خطأ في حفظ المصروف: " + msg);
     } finally {

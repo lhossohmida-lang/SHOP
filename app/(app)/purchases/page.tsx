@@ -6,6 +6,7 @@ import { usePurchases } from "@/hooks/usePurchases";
 import { useUsbScanner } from "@/hooks/useUsbScanner";
 import { addPurchase } from "@/lib/firestore/purchases";
 import { updateProduct } from "@/lib/firestore/products";
+import { isOffline, offlineAwareAwait } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDateTime } from "@/lib/utils/date";
 import BarcodeScanner from "@/components/pos/BarcodeScanner";
@@ -102,33 +103,45 @@ export default function PurchasesPage() {
     if (!storeId || !supplierName || items.length === 0) return;
     setSaving(true);
     try {
-      await addPurchase(storeId, {
+      await offlineAwareAwait(addPurchase(storeId, {
         supplierName,
-        invoiceNumber: invoiceNumber || undefined,
+        invoiceNumber: invoiceNumber.trim(),
         items,
         totalCost,
         paymentMethod,
         receivedBy: appUser!.uid,
-        note: note || undefined,
+        note: note.trim(),
         storeId,
-      });
-      // Update stock and purchase price for each item
+      }));
+
       for (const item of items) {
         const p = activeProducts.find((p) => p.id === item.productId);
         if (p) {
-          await updateProduct(storeId, item.productId, {
+          await offlineAwareAwait(updateProduct(storeId, item.productId, {
             stock: p.stock + item.quantity,
             purchasePrice: item.unitCost,
-          });
+          }));
         }
       }
+
       setShowForm(false);
       setItems([]);
       setSupplierName("");
       setInvoiceNumber("");
       setNote("");
+      if (isOffline()) {
+        alert("تم حفظ الاستلام محلياً. سيتم المزامنة عند عودة الإنترنت.");
+      }
     } catch (e) {
-      alert("خطأ: " + e);
+      if (isOffline()) {
+        setShowForm(false);
+        setItems([]);
+        setSupplierName("");
+        setInvoiceNumber("");
+        setNote("");
+      } else {
+        alert("خطأ: " + e);
+      }
     } finally {
       setSaving(false);
     }

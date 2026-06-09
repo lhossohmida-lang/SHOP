@@ -10,6 +10,7 @@ import { getSale } from "@/lib/firestore/sales";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDate, formatDateTime } from "@/lib/utils/date";
 import { printCustomerStatement } from "@/lib/utils/print";
+import { isOffline, offlineAwareAwait } from "@/lib/firestore/helpers";
 import { Plus, X, Search, CreditCard, Phone, Calendar, Trash2, Printer, TrendingUp, Receipt } from "lucide-react";
 import ExpensesPanel from "@/components/credits/ExpensesPanel";
 import type { CreditCustomer, CreditTransaction } from "@/types/credit";
@@ -165,7 +166,7 @@ export default function CreditsPage() {
     setErrorMsg("");
     try {
       const initialDebt = Number(newInitialDebt) || 0;
-      await addCreditCustomer(
+      await offlineAwareAwait(addCreditCustomer(
         storeId,
         {
           name: newName.trim(),
@@ -179,10 +180,15 @@ export default function CreditsPage() {
         initialDebt > 0
           ? { createdBy: appUser!.uid, initialDebtNote: "دين افتتاحي" }
           : undefined
-      );
+      ));
       setShowAddCustomer(false);
       setNewName(""); setNewPhone(""); setNewAddress(""); setCreditLimit(50000); setNewDueDate(""); setNewInitialDebt("");
     } catch (e: unknown) {
+      if (isOffline()) {
+        setShowAddCustomer(false);
+        setNewName(""); setNewPhone(""); setNewAddress(""); setCreditLimit(50000); setNewDueDate(""); setNewInitialDebt("");
+        return;
+      }
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMsg("خطأ في إضافة العميل: " + msg);
     } finally {
@@ -198,20 +204,25 @@ export default function CreditsPage() {
     setSaving(true);
     setErrorMsg("");
     try {
-      await addCustomerDebt(
+      await offlineAwareAwait(addCustomerDebt(
         storeId,
         selectedCustomer,
         amount,
         appUser!.uid,
         debtNote.trim() || "إضافة دين",
         new Date(debtDate)
-      );
+      ));
       setShowAddDebt(false);
       setSelectedCustomer(null);
       if (detailCustomer?.id === selectedCustomer.id) {
         await loadTransactions({ ...selectedCustomer, totalDebt: selectedCustomer.totalDebt + amount });
       }
     } catch (e: unknown) {
+      if (isOffline()) {
+        setShowAddDebt(false);
+        setSelectedCustomer(null);
+        return;
+      }
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMsg("خطأ في إضافة الدين: " + msg);
     } finally {
@@ -227,7 +238,7 @@ export default function CreditsPage() {
       const amount = Number(payAmount);
       const balanceBefore = selectedCustomer.totalDebt;
       const balanceAfter = Math.max(0, balanceBefore - amount);
-      await addCreditTransaction(storeId, {
+      await offlineAwareAwait(addCreditTransaction(storeId, {
         customerId: selectedCustomer.id,
         customerName: selectedCustomer.name,
         type: "payment",
@@ -237,14 +248,19 @@ export default function CreditsPage() {
         note: payNote.trim() || "",
         createdBy: appUser!.uid,
         createdAt: new Date(payDate),
-      });
-      await updateCreditCustomer(storeId, selectedCustomer.id, {
+      }));
+      await offlineAwareAwait(updateCreditCustomer(storeId, selectedCustomer.id, {
         totalDebt: balanceAfter,
         lastTransactionAt: new Date(payDate),
-      });
+      }));
       setShowPayment(false);
       setSelectedCustomer(null);
     } catch (e: unknown) {
+      if (isOffline()) {
+        setShowPayment(false);
+        setSelectedCustomer(null);
+        return;
+      }
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMsg("خطأ في تسجيل الدفعة: " + msg);
     } finally {

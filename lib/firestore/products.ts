@@ -15,6 +15,7 @@ import {
   QueryConstraint,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { sanitizeFirestoreData } from "@/lib/firestore/helpers";
 import type { Product, ProductFormData } from "@/types/product";
 
 function toProduct(id: string, data: Record<string, unknown>): Product {
@@ -69,12 +70,12 @@ export async function addProduct(
   storeId: string,
   data: ProductFormData
 ): Promise<string> {
-  const ref = await addDoc(productsCol(storeId), {
+  const ref = await addDoc(productsCol(storeId), sanitizeFirestoreData({
     ...data,
     storeId,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  });
+  }));
   return ref.id;
 }
 
@@ -83,10 +84,10 @@ export async function updateProduct(
   productId: string,
   data: Partial<ProductFormData>
 ): Promise<void> {
-  await updateDoc(doc(productsCol(storeId), productId), {
+  await updateDoc(doc(productsCol(storeId), productId), sanitizeFirestoreData({
     ...data,
     updatedAt: serverTimestamp(),
-  });
+  }));
 }
 
 export async function updateStock(
@@ -98,10 +99,10 @@ export async function updateStock(
   const snap = await getDoc(ref);
   if (!snap.exists()) return;
   const current = (snap.data().stock as number) || 0;
-  await updateDoc(ref, {
+  await updateDoc(ref, sanitizeFirestoreData({
     stock: current + delta,
     updatedAt: serverTimestamp(),
-  });
+  }));
 }
 
 export async function deleteProduct(

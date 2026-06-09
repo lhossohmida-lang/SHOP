@@ -13,6 +13,7 @@ import {
   deleteDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { sanitizeFirestoreData } from "@/lib/firestore/helpers";
 import type { CreditCustomer, CreditTransaction } from "@/types/credit";
 
 function toCustomer(id: string, data: Record<string, unknown>): CreditCustomer {
@@ -75,13 +76,15 @@ export async function addCreditCustomer(
   options?: { initialDebtNote?: string; createdBy?: string }
 ): Promise<string> {
   const initialDebt = Math.max(0, data.totalDebt || 0);
-  const ref = await addDoc(creditCustomersCol(storeId), {
+  const ref = await addDoc(creditCustomersCol(storeId), sanitizeFirestoreData({
     ...data,
+    address: data.address || "",
+    dueDate: data.dueDate || "",
     storeId,
     totalDebt: initialDebt,
     createdAt: serverTimestamp(),
     lastTransactionAt: serverTimestamp(),
-  });
+  }));
 
   if (initialDebt > 0 && options?.createdBy) {
     await addCreditTransaction(storeId, {
@@ -136,7 +139,7 @@ export async function updateCreditCustomer(
   customerId: string,
   data: Partial<CreditCustomer>
 ): Promise<void> {
-  await updateDoc(doc(creditCustomersCol(storeId), customerId), data);
+  await updateDoc(doc(creditCustomersCol(storeId), customerId), sanitizeFirestoreData({ ...data }));
 }
 
 export async function deleteCreditCustomer(
@@ -160,11 +163,13 @@ export async function addCreditTransaction(
   storeId: string,
   data: Omit<CreditTransaction, "id" | "createdAt" | "storeId"> & { createdAt?: Date }
 ): Promise<string> {
-  const ref = await addDoc(creditTransactionsCol(storeId), {
+  const ref = await addDoc(creditTransactionsCol(storeId), sanitizeFirestoreData({
     ...data,
+    saleId: data.saleId || "",
+    note: data.note || "",
     storeId,
     createdAt: data.createdAt || serverTimestamp(),
-  });
+  }));
   return ref.id;
 }
 

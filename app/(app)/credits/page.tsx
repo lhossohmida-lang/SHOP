@@ -166,7 +166,7 @@ export default function CreditsPage() {
     setErrorMsg("");
     try {
       const initialDebt = Number(newInitialDebt) || 0;
-      await offlineAwareAwait(addCreditCustomer(
+      const result = await offlineAwareAwait(addCreditCustomer(
         storeId,
         {
           name: newName.trim(),
@@ -184,15 +184,14 @@ export default function CreditsPage() {
       setShowAddCustomer(false);
       setNewName(""); setNewPhone(""); setNewAddress(""); setCreditLimit(50000); setNewDueDate(""); setNewInitialDebt("");
     } catch (e: unknown) {
-      if (isOffline()) {
-        setShowAddCustomer(false);
-        setNewName(""); setNewPhone(""); setNewAddress(""); setCreditLimit(50000); setNewDueDate(""); setNewInitialDebt("");
-        return;
-      }
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMsg("خطأ في إضافة العميل: " + msg);
     } finally {
       setSaving(false);
+      if (isOffline()) {
+        setShowAddCustomer(false);
+        setNewName(""); setNewPhone(""); setNewAddress(""); setCreditLimit(50000); setNewDueDate(""); setNewInitialDebt("");
+      }
     }
   };
 

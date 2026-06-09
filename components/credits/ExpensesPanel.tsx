@@ -45,7 +45,7 @@ export default function ExpensesPanel() {
     setSaving(true);
     setErrorMsg("");
     try {
-      await offlineAwareAwait(addExpense(storeId, {
+      const result = await offlineAwareAwait(addExpense(storeId, {
         title: title.trim(),
         amount: Number(amount),
         note: note.trim(),
@@ -56,15 +56,14 @@ export default function ExpensesPanel() {
       setShowForm(false);
       resetForm();
     } catch (e: unknown) {
-      if (isOffline()) {
-        setShowForm(false);
-        resetForm();
-        return;
-      }
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMsg("خطأ في حفظ المصروف: " + msg);
     } finally {
       setSaving(false);
+      if (isOffline()) {
+        setShowForm(false);
+        resetForm();
+      }
     }
   };
 

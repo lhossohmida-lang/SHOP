@@ -1,6 +1,8 @@
 import {
   collection,
   addDoc,
+  deleteDoc,
+  doc,
   query,
   orderBy,
   onSnapshot,
@@ -70,4 +72,8 @@ export async function getPurchases(storeId: string): Promise<Purchase[]> {
   const q = query(purchasesCol(storeId), orderBy("createdAt", "desc"));
   const snap = await getDocs(q);
   return snap.docs.map((d) => toPurchase(d.id, d.data()));
+}
+
+export async function deletePurchase(storeId: string, purchaseId: string): Promise<void> {
+  await deleteDoc(doc(db, "stores", storeId, "purchases", purchaseId));
 }

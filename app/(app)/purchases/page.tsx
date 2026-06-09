@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { usePurchases } from "@/hooks/usePurchases";
 import { useUsbScanner } from "@/hooks/useUsbScanner";
-import { addPurchase } from "@/lib/firestore/purchases";
+import { addPurchase, deletePurchase } from "@/lib/firestore/purchases";
 import { updateProduct } from "@/lib/firestore/products";
 import { isOffline, offlineAwareAwait } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
@@ -124,25 +124,19 @@ export default function PurchasesPage() {
         }
       }
 
+      if (isOffline()) {
+        alert("تم حفظ الاستلام محلياً. سيتم المزامنة عند عودة الإنترنت.");
+      }
+    } catch (e) {
+      if (!isOffline()) {
+        alert("خطأ: " + e);
+      }
+    } finally {
       setShowForm(false);
       setItems([]);
       setSupplierName("");
       setInvoiceNumber("");
       setNote("");
-      if (isOffline()) {
-        alert("تم حفظ الاستلام محلياً. سيتم المزامنة عند عودة الإنترنت.");
-      }
-    } catch (e) {
-      if (isOffline()) {
-        setShowForm(false);
-        setItems([]);
-        setSupplierName("");
-        setInvoiceNumber("");
-        setNote("");
-      } else {
-        alert("خطأ: " + e);
-      }
-    } finally {
       setSaving(false);
     }
   };

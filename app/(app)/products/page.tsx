@@ -3,7 +3,7 @@ import { useState, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { addProduct, updateProduct, deleteProduct } from "@/lib/firestore/products";
-import { isOffline, offlineAwareAwait } from "@/lib/firestore/helpers";
+import { isOffline, offlineAwareAwait, offlineAwareDelete } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
 import { printProductLabel, printProductLabelsBatch } from "@/lib/utils/print";
 import { ProductForm } from "@/components/products/ProductForm";
@@ -114,18 +114,13 @@ export default function ProductsPage() {
       ? updateProduct(storeId, editingProduct.id, data)
       : addProduct(storeId, data);
 
-    try {
-      await offlineAwareAwait(saveOp);
-      closeForm();
-    } catch (e) {
-      if (isOffline()) {
-        closeForm();
-      } else {
-        alert("خطأ في الحفظ: " + e);
-      }
-    } finally {
-      setSaving(false);
-    }
+    closeForm();
+    setSaving(false);
+
+    saveOp.catch((e) => {
+      console.error("Error saving product:", e);
+      alert("خطأ في حفظ المنتج: " + (e instanceof Error ? e.message : String(e)));
+    });
   };
 
   const handleDelete = (p: Product) => {
@@ -152,10 +147,21 @@ export default function ProductsPage() {
     setBulkDeleting(true);
     try {
       for (const p of selectedProducts) {
-        await deleteProduct(storeId, p.id);
+        try {
+          await offlineAwareAwait(deleteProduct(storeId, p.id));
+        } catch (e) {
+          if (!isOffline()) {
+            console.error(`Failed to delete product ${p.id}:`, e);
+          }
+        }
       }
       setShowBulkDeleteConfirm(false);
       exitSelectionMode();
+      if (isOffline()) {
+        alert("تم حذف المنتجات محلياً. سيتم المزامنة عند عودة الإنترنت.");
+      } else {
+        alert("تم حذف المنتجات بنجاح.");
+      }
     } catch (e) {
       alert("خطأ أثناء الحذف: " + e);
     } finally {
@@ -398,9 +404,14 @@ export default function ProductsPage() {
                   const p = productToDelete;
                   setProductToDelete(null);
                   try {
-                    await deleteProduct(storeId, p.id);
+                    await offlineAwareAwait(deleteProduct(storeId, p.id));
+                    if (isOffline()) {
+                      alert("تم حذف المنتج محلياً. سيتم المزامنة عند عودة الإنترنت.");
+                    }
                   } catch (e) {
-                    alert("خطأ أثناء حذف المنتج: " + e);
+                    if (!isOffline()) {
+                      alert("خطأ أثناء حذف المنتج: " + e);
+                    }
                   }
                 }}
                 className="btn-danger"

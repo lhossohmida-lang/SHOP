@@ -16,7 +16,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { sanitizeFirestoreData } from "@/lib/firestore/helpers";
+import { sanitizeFirestoreData, runOfflineWrites } from "@/lib/firestore/helpers";
 import type { Sale } from "@/types/sale";
 
 function toSale(id: string, data: Record<string, unknown>): Sale {
@@ -54,7 +54,8 @@ export async function addSale(storeId: string, data: Omit<Sale, "id" | "createdA
     customerName: data.customerName || "",
     note: data.note || "",
     storeId,
-    createdAt: serverTimestamp(),
+    // Use client timestamp as fallback for offline mode
+    createdAt: new Date(),
   }));
   return ref.id;
 }
@@ -127,47 +128,61 @@ export async function getSalesByDateRange(
 }
 
 export async function deleteSaleAndRestoreStock(storeId: string, sale: Sale): Promise<void> {
+  // Perform all operations without waiting - Firestore persistence handles the rest
+  const operations = [];
+
   // 1. Restore product stocks
   for (const item of sale.items) {
     if (item.productId) {
-      const prodRef = doc(db, "stores", storeId, "products", item.productId);
-      const prodSnap = await getDoc(prodRef);
-      if (prodSnap.exists()) {
-        const currentStock = (prodSnap.data().stock as number) || 0;
-        await updateDoc(prodRef, {
-          stock: currentStock + item.quantity,
-          updatedAt: serverTimestamp(),
-        });
-      }
+      operations.push(async () => {
+        const prodRef = doc(db, "stores", storeId, "products", item.productId);
+        const prodSnap = await getDoc(prodRef);
+        if (prodSnap.exists()) {
+          const currentStock = (prodSnap.data().stock as number) || 0;
+          await updateDoc(prodRef, {
+            stock: currentStock + item.quantity,
+            updatedAt: serverTimestamp(),
+          });
+        }
+      });
     }
   }
 
   // 2. Adjust credit customer debt if paid by credit
   if (sale.paymentMethod === "credit" && sale.customerId) {
-    const custRef = doc(db, "stores", storeId, "creditCustomers", sale.customerId);
-    const custSnap = await getDoc(custRef);
-    if (custSnap.exists()) {
-      const currentDebt = (custSnap.data().totalDebt as number) || 0;
-      await updateDoc(custRef, {
-        totalDebt: Math.max(0, currentDebt - sale.total),
-        lastTransactionAt: serverTimestamp(),
-      });
-    }
+    operations.push(async () => {
+      const custRef = doc(db, "stores", storeId, "creditCustomers", sale.customerId);
+      const custSnap = await getDoc(custRef);
+      if (custSnap.exists()) {
+        const currentDebt = (custSnap.data().totalDebt as number) || 0;
+        await updateDoc(custRef, {
+          totalDebt: Math.max(0, currentDebt - sale.total),
+          lastTransactionAt: serverTimestamp(),
+        });
+      }
 
-    // 3. Delete corresponding credit transactions
-    const txQuery = query(
-      collection(db, "stores", storeId, "creditTransactions"),
-      where("saleId", "==", sale.id)
-    );
-    const txSnap = await getDocs(txQuery);
-    for (const d of txSnap.docs) {
-      await deleteDoc(d.ref);
-    }
+      // 3. Delete corresponding credit transactions
+      const txQuery = query(
+        collection(db, "stores", storeId, "creditTransactions"),
+        where("saleId", "==", sale.id)
+      );
+      const txSnap = await getDocs(txQuery);
+      for (const d of txSnap.docs) {
+        await deleteDoc(d.ref);
+      }
+    });
   }
 
   // 4. Delete the sale itself
-  const saleRef = doc(db, "stores", storeId, "sales", sale.id);
-  await deleteDoc(saleRef);
+  operations.push(async () => {
+    const saleRef = doc(db, "stores", storeId, "sales", sale.id);
+    await deleteDoc(saleRef);
+  });
+
+  // Run all operations in background - don't wait for completion
+  runOfflineWrites(operations).catch((err) => {
+    console.error("Error deleting sale:", err);
+  });
 }
 
 export async function getSale(storeId: string, saleId: string): Promise<Sale | null> {

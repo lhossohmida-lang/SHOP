@@ -108,18 +108,25 @@ export default function PurchasesPage() {
   const confirmDelete = async () => {
     if (!storeId || !purchaseToDelete) return;
     try {
-      await deletePurchase(storeId, purchaseToDelete.id);
+      await offlineAwareAwait(deletePurchase(storeId, purchaseToDelete.id));
       setPurchaseToDelete(null);
+      if (isOffline()) {
+        alert("تم حذف المشتريات محلياً. سيتم المزامنة عند عودة الإنترنت.");
+      }
     } catch (e) {
-      alert("خطأ أثناء حذف المشتريات: " + e);
+      if (!isOffline()) {
+        alert("خطأ أثناء حذف المشتريات: " + e);
+      }
+      setPurchaseToDelete(null);
     }
   };
 
   const handleSave = async () => {
     if (!storeId || !supplierName || items.length === 0) return;
     setSaving(true);
-    try {
-      await offlineAwareAwait(addPurchase(storeId, {
+
+    const saveOp = (async () => {
+      await addPurchase(storeId, {
         supplierName,
         invoiceNumber: invoiceNumber.trim(),
         items,
@@ -128,33 +135,34 @@ export default function PurchasesPage() {
         receivedBy: appUser!.uid,
         note: note.trim(),
         storeId,
-      }));
+      });
 
       for (const item of items) {
         const p = activeProducts.find((p) => p.id === item.productId);
         if (p) {
-          await offlineAwareAwait(updateProduct(storeId, item.productId, {
+          await updateProduct(storeId, item.productId, {
             stock: p.stock + item.quantity,
             purchasePrice: item.unitCost,
-          }));
+          });
         }
       }
+    })();
 
-      if (isOffline()) {
-        alert("تم حفظ الاستلام محلياً. سيتم المزامنة عند عودة الإنترنت.");
-      }
-    } catch (e) {
-      if (!isOffline()) {
-        alert("خطأ: " + e);
-      }
-    } finally {
-      setShowForm(false);
-      setItems([]);
-      setSupplierName("");
-      setInvoiceNumber("");
-      setNote("");
-      setSaving(false);
+    setShowForm(false);
+    setItems([]);
+    setSupplierName("");
+    setInvoiceNumber("");
+    setNote("");
+    setSaving(false);
+
+    if (isOffline()) {
+      alert("تم حفظ الاستلام محلياً. سيتم المزامنة عند عودة الإنترنت.");
     }
+
+    saveOp.catch((e) => {
+      console.error("Error saving purchase in background:", e);
+      alert("خطأ في حفظ المشتريات: " + (e instanceof Error ? e.message : String(e)));
+    });
   };
 
   return (

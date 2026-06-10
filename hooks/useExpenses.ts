@@ -14,11 +14,16 @@ export function useExpenses(storeId: string | undefined) {
       return;
     }
     setLoading(true);
+    const timer = setTimeout(() => setLoading(false), 4000);
     const unsub = subscribeExpenses(storeId, (data) => {
+      clearTimeout(timer);
       setExpenses(data);
       setLoading(false);
     });
-    return unsub;
+    return () => {
+      clearTimeout(timer);
+      unsub();
+    };
   }, [storeId]);
 
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);

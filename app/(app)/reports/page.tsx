@@ -50,13 +50,16 @@ export default function ReportsPage() {
     const confirmDelete = window.confirm(`هل أنت متأكد من إلغاء الفاتورة رقم ${sale.receiptNumber} وإرجاع منتجاتها إلى المخزون؟`);
     if (!confirmDelete) return;
 
+    // Remove from UI immediately (optimistic)
+    setSales(prev => prev.filter(s => s.id !== sale.id));
+    alert("تم إلغاء الفاتورة.");
+
+    // Delete in background (will sync when online)
     try {
       await deleteSaleAndRestoreStock(storeId!, sale);
-      setSales(prev => prev.filter(s => s.id !== sale.id));
-      alert("تم إلغاء الفاتورة وإرجاع الكميات للمخزون بنجاح.");
     } catch (e) {
-      console.error(e);
-      alert("حدث خطأ أثناء الحذف: " + e);
+      console.error("Deletion error:", e);
+      alert("خطأ: قد يكون لم يتم حفظ الحذف. جرب مرة أخرى.");
     }
   };
 

@@ -13,11 +13,13 @@ export function useSales(storeId: string | undefined, limitCount = 50) {
     setLoading(true);
     // Load today's sales separately
     getSalesToday(storeId).then(setTodaySales).catch(console.error);
+    const timer = setTimeout(() => setLoading(false), 4000);
     const unsub = subscribeSales(storeId, (s) => {
+      clearTimeout(timer);
       setSales(s);
       setLoading(false);
     }, limitCount);
-    return unsub;
+    return () => { clearTimeout(timer); unsub(); };
   }, [storeId, limitCount]);
 
   const todayTotal = todaySales.reduce((sum, s) => sum + s.total, 0);

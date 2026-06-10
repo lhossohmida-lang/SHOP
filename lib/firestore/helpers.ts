@@ -41,3 +41,31 @@ export async function runOfflineWrites(
     await offlineAwareAwait(op());
   }
 }
+
+/**
+ * Optimistic delete - marks local and continues without waiting for Firestore.
+ * Firestore will sync when online.
+ */
+export async function offlineAwareDelete<T>(
+  deletePromise: Promise<void>,
+  onLocalDelete: () => void,
+  timeoutMs = 1000
+): Promise<void> {
+  // Update UI immediately (optimistic)
+  onLocalDelete();
+  
+  // Try to delete from Firestore in background
+  Promise.race([
+    deletePromise.then(() => {
+      console.log("Delete synced to Firestore");
+    }),
+    new Promise<void>((resolve) =>
+      setTimeout(() => {
+        console.log("Delete operation continuing in background");
+        resolve();
+      }, timeoutMs)
+    ),
+  ]).catch((err) => {
+    console.error("Background delete error (will retry):", err);
+  });
+}

@@ -130,6 +130,7 @@ export default function PosPage() {
       const subtotal = cart.sellSubtotal;
       const total = cart.sellTotal;
       const receiptNumber = generateReceiptNumber();
+      const now = new Date();
       
       // Store cart lines before clearing
       const cartLines = [...cart.lines];
@@ -146,6 +147,7 @@ export default function PosPage() {
       };
 
       const saleId = `offline-${receiptNumber}`;
+      const saleWithTimestamp: Sale = { ...saleData, id: saleId, createdAt: now };
       
       // Clear cart and show success immediately
       cart.clearCart();
@@ -156,7 +158,7 @@ export default function PosPage() {
 
       // Print immediately
       if (shouldPrint) {
-        printReceipt({ ...saleData, id: saleId, createdAt: new Date() });
+        printReceipt(saleWithTimestamp);
       }
 
       // Save to database in background (don't wait)

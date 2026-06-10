@@ -10,11 +10,13 @@ export function useCredits(storeId: string | undefined) {
   useEffect(() => {
     if (!storeId) { setLoading(false); return; }
     setLoading(true);
+    const timer = setTimeout(() => setLoading(false), 4000);
     const unsub = subscribeCreditCustomers(storeId, (c) => {
+      clearTimeout(timer);
       setCustomers(c);
       setLoading(false);
     });
-    return unsub;
+    return () => { clearTimeout(timer); unsub(); };
   }, [storeId]);
 
   const totalDebt = customers.reduce((sum, c) => sum + c.totalDebt, 0);

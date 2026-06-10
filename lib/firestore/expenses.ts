@@ -54,7 +54,8 @@ export async function addExpense(
     storeId,
     createdBy: data.createdBy,
     createdByName: data.createdByName || "",
-    createdAt: data.createdAt || serverTimestamp(),
+    // Use provided createdAt or current date (for offline support)
+    createdAt: data.createdAt || new Date(),
   }));
   return ref.id;
 }
@@ -84,8 +85,8 @@ export async function getExpensesByDateRange(
 ): Promise<Expense[]> {
   const rangeQuery = query(
     expensesCol(storeId),
-    where("createdAt", ">=", Timestamp.fromDate(start)),
-    where("createdAt", "<=", Timestamp.fromDate(end)),
+    where("createdAt", ">=", start),
+    where("createdAt", "<=", end),
     orderBy("createdAt", "desc")
   );
 

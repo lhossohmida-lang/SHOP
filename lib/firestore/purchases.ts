@@ -48,7 +48,8 @@ export async function addPurchase(
     note: data.note || "",
     supplierId: data.supplierId || "",
     storeId,
-    createdAt: serverTimestamp(),
+    // Use client Date (not serverTimestamp) so offline mode works
+    createdAt: new Date(),
   }));
   return ref.id;
 }

@@ -44,27 +44,24 @@ export default function ExpensesPanel() {
     if (!storeId || !title.trim() || !amount || Number(amount) <= 0) return;
     setSaving(true);
     setErrorMsg("");
-    try {
-      const result = await offlineAwareAwait(addExpense(storeId, {
-        title: title.trim(),
-        amount: Number(amount),
-        note: note.trim(),
-        createdBy: appUser!.uid,
-        createdByName: appUser!.displayName,
-        createdAt: new Date(expenseDate),
-      }));
-      setShowForm(false);
-      resetForm();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setErrorMsg("خطأ في حفظ المصروف: " + msg);
-    } finally {
-      setSaving(false);
-      if (isOffline()) {
-        setShowForm(false);
-        resetForm();
-      }
-    }
+
+    const saveOp = addExpense(storeId, {
+      title: title.trim(),
+      amount: Number(amount),
+      note: note.trim(),
+      createdBy: appUser!.uid,
+      createdByName: appUser!.displayName,
+      createdAt: new Date(expenseDate),
+    });
+
+    setShowForm(false);
+    resetForm();
+    setSaving(false);
+
+    saveOp.catch((e) => {
+      console.error("Error saving expense:", e);
+      setErrorMsg("خطأ في حفظ المصروف: " + (e instanceof Error ? e.message : String(e)));
+    });
   };
 
   return (

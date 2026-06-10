@@ -96,28 +96,28 @@ export function printProductLabel(
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
-      gap: 1mm;
-      padding: 2mm;
+      justify-content: space-around;
+      padding: 1.5mm;
       text-align: center;
     }
     .name {
-      font-size: 20pt;
-      font-weight: bold;
-      color: #17231c;
+      font-size: 11.5pt;
+      font-weight: 700;
+      color: #000;
       line-height: 1.2;
-      max-width: 36mm;
+      width: 100%;
+      max-height: 9.5mm; /* Max 2 lines */
       overflow: hidden;
-      word-break: break-word;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      word-break: break-all;
     }
     .price {
-      font-size: 28pt;
-      font-weight: bold;
-      color: #26683a;
+      font-size: 17pt;
+      font-weight: 800;
+      color: #000;
       white-space: nowrap;
-    }
-    @media print {
-      html, body { width: 40mm; height: 20mm; }
     }
   </style>
 </head>
@@ -153,26 +153,29 @@ const labelPageStyles = `
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
-      gap: 1mm;
-      padding: 2mm;
+      justify-content: space-around;
+      padding: 1.5mm;
       text-align: center;
       page-break-after: always;
     }
     .label-page:last-child { page-break-after: auto; }
     .name {
-      font-size: 20pt;
-      font-weight: bold;
-      color: #17231c;
+      font-size: 11.5pt;
+      font-weight: 700;
+      color: #000;
       line-height: 1.2;
-      max-width: 36mm;
+      width: 100%;
+      max-height: 9.5mm; /* Max 2 lines */
       overflow: hidden;
-      word-break: break-word;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      word-break: break-all;
     }
     .price {
-      font-size: 28pt;
-      font-weight: bold;
-      color: #26683a;
+      font-size: 17pt;
+      font-weight: 800;
+      color: #000;
       white-space: nowrap;
     }
 `;

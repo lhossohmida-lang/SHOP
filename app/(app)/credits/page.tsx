@@ -164,35 +164,32 @@ export default function CreditsPage() {
     if (!storeId || !newName.trim()) return;
     setSaving(true);
     setErrorMsg("");
-    try {
-      const initialDebt = Number(newInitialDebt) || 0;
-      const result = await offlineAwareAwait(addCreditCustomer(
-        storeId,
-        {
-          name: newName.trim(),
-          phone: newPhone.trim(),
-          address: newAddress.trim() || "",
-          totalDebt: initialDebt,
-          creditLimit: Number(creditLimit) || 50000,
-          isActive: true,
-          dueDate: newDueDate || "",
-        },
-        initialDebt > 0
-          ? { createdBy: appUser!.uid, initialDebtNote: "دين افتتاحي" }
-          : undefined
-      ));
-      setShowAddCustomer(false);
-      setNewName(""); setNewPhone(""); setNewAddress(""); setCreditLimit(50000); setNewDueDate(""); setNewInitialDebt("");
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setErrorMsg("خطأ في إضافة العميل: " + msg);
-    } finally {
-      setSaving(false);
-      if (isOffline()) {
-        setShowAddCustomer(false);
-        setNewName(""); setNewPhone(""); setNewAddress(""); setCreditLimit(50000); setNewDueDate(""); setNewInitialDebt("");
-      }
-    }
+    
+    const initialDebt = Number(newInitialDebt) || 0;
+    const saveOp = addCreditCustomer(
+      storeId,
+      {
+        name: newName.trim(),
+        phone: newPhone.trim(),
+        address: newAddress.trim() || "",
+        totalDebt: initialDebt,
+        creditLimit: Number(creditLimit) || 50000,
+        isActive: true,
+        dueDate: newDueDate || "",
+      },
+      initialDebt > 0
+        ? { createdBy: appUser!.uid, initialDebtNote: "دين افتتاحي" }
+        : undefined
+    );
+
+    setShowAddCustomer(false);
+    setNewName(""); setNewPhone(""); setNewAddress(""); setCreditLimit(50000); setNewDueDate(""); setNewInitialDebt("");
+    setSaving(false);
+
+    saveOp.catch((e) => {
+      console.error("Error saving customer:", e);
+      setErrorMsg("خطأ في إضافة العميل: " + (e instanceof Error ? e.message : String(e)));
+    });
   };
 
   const handleAddDebt = async () => {
@@ -202,42 +199,42 @@ export default function CreditsPage() {
 
     setSaving(true);
     setErrorMsg("");
-    try {
-      await offlineAwareAwait(addCustomerDebt(
-        storeId,
-        selectedCustomer,
-        amount,
-        appUser!.uid,
-        debtNote.trim() || "إضافة دين",
-        new Date(debtDate)
-      ));
-      setShowAddDebt(false);
-      setSelectedCustomer(null);
-      if (detailCustomer?.id === selectedCustomer.id) {
-        await loadTransactions({ ...selectedCustomer, totalDebt: selectedCustomer.totalDebt + amount });
-      }
-    } catch (e: unknown) {
-      if (isOffline()) {
-        setShowAddDebt(false);
-        setSelectedCustomer(null);
-        return;
-      }
-      const msg = e instanceof Error ? e.message : String(e);
-      setErrorMsg("خطأ في إضافة الدين: " + msg);
-    } finally {
-      setSaving(false);
+
+    const saveOp = addCustomerDebt(
+      storeId,
+      selectedCustomer,
+      amount,
+      appUser!.uid,
+      debtNote.trim() || "إضافة دين",
+      new Date(debtDate)
+    );
+
+    setShowAddDebt(false);
+    const customerToLoad = selectedCustomer;
+    setSelectedCustomer(null);
+    setSaving(false);
+
+    if (detailCustomer?.id === customerToLoad.id) {
+      loadTransactions({ ...customerToLoad, totalDebt: customerToLoad.totalDebt + amount }).catch(console.error);
     }
+
+    saveOp.catch((e) => {
+      console.error("Error adding debt:", e);
+      setErrorMsg("خطأ في إضافة الدين: " + (e instanceof Error ? e.message : String(e)));
+    });
   };
 
   const handlePayment = async () => {
     if (!storeId || !selectedCustomer || !payAmount) return;
     setSaving(true);
     setErrorMsg("");
-    try {
-      const amount = Number(payAmount);
-      const balanceBefore = selectedCustomer.totalDebt;
-      const balanceAfter = Math.max(0, balanceBefore - amount);
-      await offlineAwareAwait(addCreditTransaction(storeId, {
+
+    const amount = Number(payAmount);
+    const balanceBefore = selectedCustomer.totalDebt;
+    const balanceAfter = Math.max(0, balanceBefore - amount);
+
+    const saveOp = (async () => {
+      await addCreditTransaction(storeId, {
         customerId: selectedCustomer.id,
         customerName: selectedCustomer.name,
         type: "payment",
@@ -247,24 +244,26 @@ export default function CreditsPage() {
         note: payNote.trim() || "",
         createdBy: appUser!.uid,
         createdAt: new Date(payDate),
-      }));
-      await offlineAwareAwait(updateCreditCustomer(storeId, selectedCustomer.id, {
+      });
+      await updateCreditCustomer(storeId, selectedCustomer.id, {
         totalDebt: balanceAfter,
         lastTransactionAt: new Date(payDate),
-      }));
-      setShowPayment(false);
-      setSelectedCustomer(null);
-    } catch (e: unknown) {
-      if (isOffline()) {
-        setShowPayment(false);
-        setSelectedCustomer(null);
-        return;
-      }
-      const msg = e instanceof Error ? e.message : String(e);
-      setErrorMsg("خطأ في تسجيل الدفعة: " + msg);
-    } finally {
-      setSaving(false);
+      });
+    })();
+
+    setShowPayment(false);
+    const customerToLoad = selectedCustomer;
+    setSelectedCustomer(null);
+    setSaving(false);
+
+    if (detailCustomer?.id === customerToLoad.id) {
+      loadTransactions({ ...customerToLoad, totalDebt: balanceAfter }).catch(console.error);
     }
+
+    saveOp.catch((e) => {
+      console.error("Error saving payment:", e);
+      setErrorMsg("خطأ في تسجيل الدفعة: " + (e instanceof Error ? e.message : String(e)));
+    });
   };
 
   return (

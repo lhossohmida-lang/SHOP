@@ -10,11 +10,13 @@ export function usePurchases(storeId: string | undefined) {
   useEffect(() => {
     if (!storeId) { setLoading(false); return; }
     setLoading(true);
+    const timer = setTimeout(() => setLoading(false), 4000);
     const unsub = subscribePurchases(storeId, (p) => {
+      clearTimeout(timer);
       setPurchases(p);
       setLoading(false);
     });
-    return unsub;
+    return () => { clearTimeout(timer); unsub(); };
   }, [storeId]);
 
   return { purchases, loading };

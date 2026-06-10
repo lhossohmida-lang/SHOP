@@ -14,11 +14,14 @@ export function useProducts(storeId: string | undefined) {
       return;
     }
     setLoading(true);
+    // Timeout: if no data after 4s (offline), stop loading to unblock the UI
+    const timer = setTimeout(() => setLoading(false), 4000);
     const unsub = subscribeProducts(storeId, (prods) => {
+      clearTimeout(timer);
       setProducts(prods);
       setLoading(false);
     });
-    return unsub;
+    return () => { clearTimeout(timer); unsub(); };
   }, [storeId]);
 
   const lowStock = products.filter((p) => p.stock <= p.minStock && p.isActive);

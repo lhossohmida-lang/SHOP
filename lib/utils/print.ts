@@ -94,41 +94,27 @@ export function printProductLabel(
     }
     body {
       display: flex;
-      flex-direction: row;
+      flex-direction: column;
       align-items: center;
-      justify-content: space-between;
+      justify-content: center;
       gap: 1mm;
-      padding: 1mm 2mm;
+      padding: 2mm;
       text-align: center;
     }
     .name {
-      font-size: 6pt;
+      font-size: 10pt;
       font-weight: bold;
       color: #17231c;
       line-height: 1.2;
-      max-width: 12mm;
+      max-width: 36mm;
       overflow: hidden;
       word-break: break-word;
-      flex-shrink: 0;
-    }
-    .barcode-wrap {
-      flex: 1;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-width: 0;
-    }
-    .barcode-wrap svg {
-      max-width: 22mm;
-      max-height: 14mm;
-      height: auto;
     }
     .price {
-      font-size: 8pt;
+      font-size: 14pt;
       font-weight: bold;
       color: #26683a;
       white-space: nowrap;
-      flex-shrink: 0;
     }
     @media print {
       html, body { width: 40mm; height: 20mm; }
@@ -137,7 +123,6 @@ export function printProductLabel(
 </head>
 <body>
   <div class="name">${productName}</div>
-  ${barcodeBlock(barcode)}
   <div class="price">${formatCurrency(sellingPrice)}</div>
   ${printScript()}
 </body>
@@ -153,7 +138,6 @@ function productLabelHtml(
 ): string {
   return `<div class="label-page">
   <div class="name">${productName}</div>
-  ${barcodeBlock(barcode)}
   <div class="price">${formatCurrency(sellingPrice)}</div>
 </div>`;
 }
@@ -167,43 +151,29 @@ const labelPageStyles = `
       height: 20mm;
       overflow: hidden;
       display: flex;
-      flex-direction: row;
+      flex-direction: column;
       align-items: center;
-      justify-content: space-between;
+      justify-content: center;
       gap: 1mm;
-      padding: 1mm 2mm;
+      padding: 2mm;
       text-align: center;
       page-break-after: always;
     }
     .label-page:last-child { page-break-after: auto; }
     .name {
-      font-size: 6pt;
+      font-size: 10pt;
       font-weight: bold;
       color: #17231c;
       line-height: 1.2;
-      max-width: 12mm;
+      max-width: 36mm;
       overflow: hidden;
       word-break: break-word;
-      flex-shrink: 0;
-    }
-    .barcode-wrap {
-      flex: 1;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-width: 0;
-    }
-    .barcode-wrap svg {
-      max-width: 22mm;
-      max-height: 14mm;
-      height: auto;
     }
     .price {
-      font-size: 8pt;
+      font-size: 14pt;
       font-weight: bold;
       color: #26683a;
       white-space: nowrap;
-      flex-shrink: 0;
     }
 `;
 

@@ -111,7 +111,7 @@ export default function PosPage() {
         totalPrice: l.sellingPrice * l.quantity,
       }));
 
-  const handleConfirm = useCallback(async () => {
+  const handleConfirm = useCallback(async (shouldPrint: boolean = true) => {
     if (!storeId || cart.lines.length === 0) return;
     if (mode === "credit" && !selectedCustomer) {
       setShowCreditPanel(true);
@@ -121,7 +121,7 @@ export default function PosPage() {
     try {
       const isCash = mode === "cash";
       const items = processLines();
-      
+
       if (items.length === 0) {
         showMsg("❌ خطأ: لا توجد منتجات صالحة للبيع بالسلّة");
         setLoading(false);
@@ -166,7 +166,9 @@ export default function PosPage() {
         }));
       }
 
-      printReceipt({ ...saleData, id: saleId, createdAt: new Date() });
+      if (shouldPrint) {
+        printReceipt({ ...saleData, id: saleId, createdAt: new Date() });
+      }
       cart.clearCart();
       setSelectedCustomer(null);
       setActiveMobileTab("cart");
@@ -182,6 +184,14 @@ export default function PosPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId, mode, selectedCustomer, cart, appUser]);
+
+  const handleConfirmOnly = useCallback(async () => {
+    await handleConfirm(false);
+  }, [handleConfirm]);
+
+  const handleConfirmAndPrint = useCallback(async () => {
+    await handleConfirm(true);
+  }, [handleConfirm]);
 
   // F10 → confirm current sale (placed AFTER handleConfirm is defined)
   useEffect(() => {
@@ -446,7 +456,8 @@ export default function PosPage() {
             onDiscountValue={cart.setDiscountValue}
             onDiscountPct={cart.setDiscountPct}
             onClear={cart.clearCart}
-            onConfirm={handleConfirm}
+            onConfirm={handleConfirmOnly}
+            onConfirmAndPrint={handleConfirmAndPrint}
             loading={loading}
             disabled={cart.lines.length === 0}
           />

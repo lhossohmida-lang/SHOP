@@ -15,13 +15,14 @@ interface Props {
   onDiscountPct: (v: number) => void;
   onClear: () => void;
   onConfirm: () => void;
+  onConfirmAndPrint: () => void;
   loading: boolean;
   disabled: boolean;
 }
 
 export default function PosSummary({
   mode, subtotal, total, discount, discountValue, discountPct,
-  itemCount, onDiscountValue, onDiscountPct, onClear, onConfirm, loading, disabled
+  itemCount, onDiscountValue, onDiscountPct, onClear, onConfirm, onConfirmAndPrint, loading, disabled
 }: Props) {
   const [paid, setPaid] = useState<number | "">(0);
   const remaining = typeof paid === "number" ? Math.max(0, total - paid) : total;
@@ -161,7 +162,7 @@ export default function PosSummary({
       {/* Actions */}
       <div style={{ padding: "0.875rem", borderTop: "1px solid #f3f4f6", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
         <button
-          onClick={onConfirm}
+          onClick={onConfirmAndPrint}
           disabled={disabled || loading}
           style={{
             padding: "0.75rem", borderRadius: "0.625rem", border: "none",
@@ -171,7 +172,18 @@ export default function PosSummary({
             transition: "opacity 0.15s",
           }}
         >
-          {loading ? "جارٍ الحفظ..." : isCash ? "✅ تأكيد الدفع" : "✅ تأكيد الكريدي"}
+          {loading ? "جارٍ الحفظ..." : isCash ? "🖨 طباعة وتأكيد" : "🖨 طباعة وتأكيد"}
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={disabled || loading}
+          style={{
+            padding: "0.6rem", borderRadius: "0.5rem", border: "1px solid #c5e5b8",
+            background: "#f1f8ee", color: "#26683a", fontWeight: 600,
+            fontSize: "0.85rem", cursor: disabled ? "not-allowed" : "pointer",
+          }}
+        >
+          {loading ? "جارٍ الحفظ..." : "✅ تأكيد فقط"}
         </button>
         <button
           onClick={onClear}

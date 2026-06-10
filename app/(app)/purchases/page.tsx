@@ -29,6 +29,7 @@ export default function PurchasesPage() {
   const [productSearch, setProductSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
+  const [purchaseToDelete, setPurchaseToDelete] = useState<any>(null);
 
   const searchResults =
     productSearch.length > 1
@@ -99,6 +100,21 @@ export default function PurchasesPage() {
 
   const totalCost = items.reduce((s, i) => s + i.totalCost, 0);
 
+  const handleDelete = async (purchase: any) => {
+    if (!storeId) return;
+    setPurchaseToDelete(purchase);
+  };
+
+  const confirmDelete = async () => {
+    if (!storeId || !purchaseToDelete) return;
+    try {
+      await deletePurchase(storeId, purchaseToDelete.id);
+      setPurchaseToDelete(null);
+    } catch (e) {
+      alert("خطأ أثناء حذف المشتريات: " + e);
+    }
+  };
+
   const handleSave = async () => {
     if (!storeId || !supplierName || items.length === 0) return;
     setSaving(true);
@@ -168,14 +184,15 @@ export default function PurchasesPage() {
               <th>الأصناف</th>
               <th>الإجمالي</th>
               <th>طريقة الدفع</th>
+              <th>إجراءات</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} style={{ textAlign: "center", padding: "2rem", color: "#9ca3af" }}>جارٍ التحميل...</td></tr>
+              <tr><td colSpan={7} style={{ textAlign: "center", padding: "2rem", color: "#9ca3af" }}>جارٍ التحميل...</td></tr>
             ) : purchases.length === 0 ? (
               <tr>
-                <td colSpan={6} style={{ textAlign: "center", padding: "3rem", color: "#9ca3af" }}>
+                <td colSpan={7} style={{ textAlign: "center", padding: "3rem", color: "#9ca3af" }}>
                   <TruckIcon size={36} style={{ margin: "0 auto 0.75rem", opacity: 0.2 }} /><br />
                   لا توجد مشتريات مسجلة
                 </td>
@@ -192,6 +209,16 @@ export default function PurchasesPage() {
                     <span className={p.paymentMethod === "credit" ? "badge-yellow" : "badge-green"}>
                       {p.paymentMethod === "cash" ? "نقداً" : p.paymentMethod === "credit" ? "آجل" : "شيك"}
                     </span>
+                  </td>
+                  <td>
+                    <button
+                      onClick={() => handleDelete(p)}
+                      className="btn-danger"
+                      style={{ padding: "0.25rem 0.5rem" }}
+                      title="حذف المشتريات"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </td>
                 </tr>
               ))
@@ -363,6 +390,30 @@ export default function PurchasesPage() {
                 style={{ flex: 2, justifyContent: "center" }}
               >
                 {saving ? "جارٍ الحفظ..." : "✅ تأكيد الاستلام"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {purchaseToDelete && (
+        <div className="modal-overlay" onClick={() => setPurchaseToDelete(null)}>
+          <div className="card animate-slide-up" style={{ width: "100%", maxWidth: "420px" }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ fontWeight: 700, marginBottom: "0.75rem", color: "#dc2626" }}>تأكيد حذف المشتريات</h3>
+            <p style={{ color: "#4b5563", fontSize: "0.875rem", marginBottom: "1.25rem" }}>
+              هل أنت متأكد من رغبتك في حذف مشتريات <strong>"{purchaseToDelete.supplierName}"</strong> نهائياً؟ لا يمكن التراجع عن هذا الإجراء.
+            </p>
+            <div style={{ display: "flex", gap: "0.75rem" }}>
+              <button onClick={() => setPurchaseToDelete(null)} className="btn-secondary" style={{ flex: 1, justifyContent: "center" }}>
+                إلغاء
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="btn-danger"
+                style={{ flex: 1, justifyContent: "center" }}
+              >
+                تأكيد الحذف
               </button>
             </div>
           </div>

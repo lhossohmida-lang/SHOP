@@ -102,7 +102,7 @@ export function printProductLabel(
       text-align: center;
     }
     .name {
-      font-size: 10pt;
+      font-size: 20pt;
       font-weight: bold;
       color: #17231c;
       line-height: 1.2;
@@ -111,7 +111,7 @@ export function printProductLabel(
       word-break: break-word;
     }
     .price {
-      font-size: 14pt;
+      font-size: 28pt;
       font-weight: bold;
       color: #26683a;
       white-space: nowrap;
@@ -161,7 +161,7 @@ const labelPageStyles = `
     }
     .label-page:last-child { page-break-after: auto; }
     .name {
-      font-size: 10pt;
+      font-size: 20pt;
       font-weight: bold;
       color: #17231c;
       line-height: 1.2;
@@ -170,7 +170,7 @@ const labelPageStyles = `
       word-break: break-word;
     }
     .price {
-      font-size: 14pt;
+      font-size: 28pt;
       font-weight: bold;
       color: #26683a;
       white-space: nowrap;

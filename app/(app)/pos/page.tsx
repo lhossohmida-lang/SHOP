@@ -8,7 +8,6 @@ import { usePosCart } from "@/hooks/usePosCart";
 import { addSale } from "@/lib/firestore/sales";
 import { updateStock } from "@/lib/firestore/products";
 import { addCreditTransaction, updateCreditCustomer } from "@/lib/firestore/credits";
-import { isOffline, offlineAwareAwait } from "@/lib/firestore/helpers";
 import { generateReceiptNumber } from "@/lib/utils/date";
 import { printReceipt } from "@/lib/utils/print";
 import BarcodeScanner from "@/components/pos/BarcodeScanner";
@@ -131,6 +130,9 @@ export default function PosPage() {
       const subtotal = cart.sellSubtotal;
       const total = cart.sellTotal;
       const receiptNumber = generateReceiptNumber();
+      
+      // Store cart lines before clearing
+      const cartLines = [...cart.lines];
 
       const saleData: Omit<Sale, "id" | "createdAt"> = {
         type: "sale", items, subtotal,
@@ -143,43 +145,49 @@ export default function PosPage() {
         receiptNumber, storeId,
       };
 
-      const saleId =
-        (await offlineAwareAwait(addSale(storeId, saleData))) ??
-        `offline-${receiptNumber}`;
-
-      for (const l of cart.lines.filter(l => l.quantity > 0)) {
-        await offlineAwareAwait(updateStock(storeId, l.productId, -l.quantity));
-      }
-
-      if (mode === "credit" && selectedCustomer) {
-        const balanceBefore = selectedCustomer.totalDebt;
-        const balanceAfter = balanceBefore + total;
-        await offlineAwareAwait(addCreditTransaction(storeId, {
-          customerId: selectedCustomer.id,
-          customerName: selectedCustomer.name,
-          type: "purchase",
-          amount: total, balanceBefore, balanceAfter,
-          saleId, createdBy: appUser!.uid,
-        }));
-        await offlineAwareAwait(updateCreditCustomer(storeId, selectedCustomer.id, {
-          totalDebt: balanceAfter, lastTransactionAt: new Date(),
-        }));
-      }
-
-      if (shouldPrint) {
-        printReceipt({ ...saleData, id: saleId, createdAt: new Date() });
-      }
+      const saleId = `offline-${receiptNumber}`;
+      
+      // Clear cart and show success immediately
       cart.clearCart();
       setSelectedCustomer(null);
       setActiveMobileTab("cart");
-      showMsg(
-        isOffline()
-          ? `✅ تم حفظ البيع محلياً — ${receiptNumber}`
-          : `✅ تم البيع — ${receiptNumber}`
-      );
+      showMsg(`✅ تم البيع — ${receiptNumber}`);
+      setLoading(false);
+
+      // Print immediately
+      if (shouldPrint) {
+        printReceipt({ ...saleData, id: saleId, createdAt: new Date() });
+      }
+
+      // Save to database in background (don't wait)
+      (async () => {
+        try {
+          const actualSaleId = await addSale(storeId, saleData);
+          
+          for (const l of cartLines.filter(l => l.quantity > 0)) {
+            await updateStock(storeId, l.productId, -l.quantity);
+          }
+
+          if (mode === "credit" && selectedCustomer) {
+            const balanceBefore = selectedCustomer.totalDebt;
+            const balanceAfter = balanceBefore + total;
+            await addCreditTransaction(storeId, {
+              customerId: selectedCustomer.id,
+              customerName: selectedCustomer.name,
+              type: "purchase",
+              amount: total, balanceBefore, balanceAfter,
+              saleId: actualSaleId, createdBy: appUser!.uid,
+            });
+            await updateCreditCustomer(storeId, selectedCustomer.id, {
+              totalDebt: balanceAfter, lastTransactionAt: new Date(),
+            });
+          }
+        } catch (e) {
+          console.error("Background save error:", e);
+        }
+      })();
     } catch (e) {
       showMsg("❌ خطأ: " + e);
-    } finally {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

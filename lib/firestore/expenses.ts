@@ -94,13 +94,17 @@ export async function getExpensesByDateRange(
       ? await getDocsFromCache(rangeQuery)
       : await getDocs(rangeQuery);
     return snap.docs.map((d) => toExpense(d.id, d.data()));
-  } catch {
-    const allQuery = query(expensesCol(storeId), orderBy("createdAt", "desc"));
-    const snap = await getDocsFromCache(allQuery);
-    return filterExpensesByDate(
-      snap.docs.map((d) => toExpense(d.id, d.data())),
-      start,
-      end
-    );
+  } catch (error) {
+    try {
+      const allQuery = query(expensesCol(storeId), orderBy("createdAt", "desc"));
+      const snap = await getDocsFromCache(allQuery);
+      return filterExpensesByDate(
+        snap.docs.map((d) => toExpense(d.id, d.data())),
+        start,
+        end
+      );
+    } catch {
+      return [];
+    }
   }
 }

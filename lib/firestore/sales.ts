@@ -103,14 +103,18 @@ async function querySalesOfflineFirst(
       ? await getDocsFromCache(rangeQuery)
       : await getDocs(rangeQuery);
     return snap.docs.map((d) => toSale(d.id, d.data()));
-  } catch {
-    const allQuery = query(salesCol(storeId), orderBy("createdAt", "desc"));
-    const snap = await getDocsFromCache(allQuery);
-    return filterSalesByDate(
-      snap.docs.map((d) => toSale(d.id, d.data())),
-      start,
-      end
-    );
+  } catch (error) {
+    try {
+      const allQuery = query(salesCol(storeId), orderBy("createdAt", "desc"));
+      const snap = await getDocsFromCache(allQuery);
+      return filterSalesByDate(
+        snap.docs.map((d) => toSale(d.id, d.data())),
+        start,
+        end
+      );
+    } catch {
+      return [];
+    }
   }
 }
 

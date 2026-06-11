@@ -79,8 +79,8 @@ export default function AiPage() {
         headers: {
           "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json",
-          "HTTP-Referer": (typeof window !== "undefined" && window.location.protocol !== "file:") ? window.location.origin : "https://blgasm-pos.app",
-          "X-Title": STORE_NAME,
+          "HTTP-Referer": "https://blgasm-pos.app",
+          "X-Title": "Blgasm POS",
         },
         body: JSON.stringify({
           model,

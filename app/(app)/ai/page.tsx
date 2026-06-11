@@ -79,7 +79,7 @@ export default function AiPage() {
         headers: {
           "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json",
-          "HTTP-Referer": typeof window !== "undefined" ? window.location.origin : "http://localhost:3000",
+          "HTTP-Referer": (typeof window !== "undefined" && window.location.protocol !== "file:") ? window.location.origin : "https://blgasm-pos.app",
           "X-Title": STORE_NAME,
         },
         body: JSON.stringify({
@@ -88,14 +88,21 @@ export default function AiPage() {
             { role: "system", content: systemPrompt },
             { role: "user", content: text },
           ],
-          max_tokens: 512,
         }),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const serverError = errData?.error?.message || `HTTP status ${res.status}`;
+        setMessages(prev => [...prev, { role: "assistant", content: `❌ فشل الطلب من خادم الذكاء الاصطناعي: ${serverError}` }]);
+        return;
+      }
       const data = await res.json();
       const reply = data.choices?.[0]?.message?.content || "عذراً، لم أتمكن من الإجابة في الوقت الحالي.";
       setMessages(prev => [...prev, { role: "assistant", content: reply }]);
-    } catch {
-      setMessages(prev => [...prev, { role: "assistant", content: "❌ حدث خطأ في الاتصال بخدمة الذكاء الاصطناعي." }]);
+    } catch (e: any) {
+      console.error("AI connection error:", e);
+      const errMsg = e instanceof Error ? e.message : String(e);
+      setMessages(prev => [...prev, { role: "assistant", content: `❌ حدث خطأ في الاتصال بخدمة الذكاء الاصطناعي: ${errMsg}` }]);
     } finally {
       setLoading(false);
     }

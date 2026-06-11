@@ -13,9 +13,11 @@ import { printReceipt } from "@/lib/utils/print";
 import BarcodeScanner from "@/components/pos/BarcodeScanner";
 import PosTable from "@/components/pos/PosTable";
 import PosSummary from "@/components/pos/PosSummary";
-import { Search, Camera, ScanLine, X, UserCheck, Trash2 } from "lucide-react";
+import { Search, Camera, ScanLine, X, UserCheck, Trash2, PackagePlus, Lock } from "lucide-react";
 import type { Sale } from "@/types/sale";
 import type { Product } from "@/types/product";
+
+const STOCK_PIN = "0000";
 
 export default function PosPage() {
   const { appUser } = useAuth();
@@ -38,13 +40,24 @@ export default function PosPage() {
   const [custSearch, setCustSearch] = useState("");
   const [activeMobileTab, setActiveMobileTab] = useState<"cart" | "checkout">("cart");
 
+  // Zero-stock modal
+  const [outOfStockProduct, setOutOfStockProduct] = useState<Product | null>(null);
+  const [stockPin, setStockPin] = useState("");
+  const [stockQty, setStockQty] = useState("1");
+  const [stockPinError, setStockPinError] = useState("");
+  const [stockLoading, setStockLoading] = useState(false);
+
   const searchRef = useRef<HTMLInputElement>(null);
 
   const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
   const tryAddProduct = useCallback((p: Product) => {
     if (p.stock <= 0) {
-      showMsg("❌ المنتج نفد من المخزون ولا يمكن إدخاله");
+      // Show the out-of-stock modal instead of just a toast
+      setOutOfStockProduct(p);
+      setStockPin("");
+      setStockQty("1");
+      setStockPinError("");
       return false;
     }
     if (!addProduct(p)) {
@@ -53,6 +66,29 @@ export default function PosPage() {
     }
     return true;
   }, [addProduct]);
+
+  const handleAddStockFromPos = useCallback(async () => {
+    if (!storeId || !outOfStockProduct) return;
+    if (stockPin !== STOCK_PIN) {
+      setStockPinError("كلمة السر غير صحيحة");
+      return;
+    }
+    const qty = parseInt(stockQty, 10);
+    if (isNaN(qty) || qty <= 0) {
+      setStockPinError("أدخل كمية صحيحة");
+      return;
+    }
+    setStockLoading(true);
+    try {
+      await updateStock(storeId, outOfStockProduct.id, qty);
+      showMsg(`✅ تمت إضافة ${qty} وحدة لـ ${outOfStockProduct.nameAr || outOfStockProduct.name}`);
+      setOutOfStockProduct(null);
+    } catch (e) {
+      setStockPinError("حدث خطأ أثناء التحديث");
+    } finally {
+      setStockLoading(false);
+    }
+  }, [storeId, outOfStockProduct, stockPin, stockQty]);
 
   useEffect(() => { searchRef.current?.focus(); }, []);
 
@@ -517,6 +553,95 @@ export default function PosPage() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Out-of-Stock Modal */}
+      {outOfStockProduct && (
+        <div className="modal-overlay" onClick={() => setOutOfStockProduct(null)}>
+          <div className="card animate-slide-up" style={{ width: "100%", maxWidth: "400px" }} onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#fef2f2", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <PackagePlus size={18} color="#dc2626" />
+                </div>
+                <div>
+                  <h2 style={{ fontWeight: 700, fontSize: "1rem", color: "#17231c", margin: 0 }}>نفد من المخزون</h2>
+                  <p style={{ margin: 0, fontSize: "0.75rem", color: "#6b7280" }}>يمكنك إضافة كمية بكلمة السر</p>
+                </div>
+              </div>
+              <button onClick={() => setOutOfStockProduct(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af" }}><X size={20} /></button>
+            </div>
+
+            {/* Product name */}
+            <div style={{ padding: "0.75rem 1rem", background: "#fef2f2", borderRadius: "0.625rem", marginBottom: "1rem", border: "1px solid #fecaca" }}>
+              <div style={{ fontWeight: 700, color: "#991b1b", fontSize: "0.95rem" }}>
+                {outOfStockProduct.nameAr || outOfStockProduct.name}
+              </div>
+              <div style={{ fontSize: "0.75rem", color: "#dc2626", marginTop: "0.25rem" }}>المخزون الحالي: 0 وحدة</div>
+            </div>
+
+            {/* PIN input */}
+            <div style={{ marginBottom: "0.875rem" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.82rem", fontWeight: 600, color: "#374151", marginBottom: "0.375rem" }}>
+                <Lock size={14} /> كلمة السر
+              </label>
+              <input
+                type="password"
+                className="input-field"
+                placeholder="أدخل كلمة السر..."
+                value={stockPin}
+                onChange={e => { setStockPin(e.target.value); setStockPinError(""); }}
+                onKeyDown={e => e.key === "Enter" && handleAddStockFromPos()}
+                maxLength={4}
+                autoFocus
+                style={{ letterSpacing: "0.25rem", textAlign: "center", fontSize: "1.1rem" }}
+              />
+            </div>
+
+            {/* Quantity input */}
+            <div style={{ marginBottom: "1rem" }}>
+              <label style={{ display: "block", fontSize: "0.82rem", fontWeight: 600, color: "#374151", marginBottom: "0.375rem" }}>
+                الكمية المضافة
+              </label>
+              <input
+                type="number"
+                className="input-field"
+                placeholder="الكمية"
+                value={stockQty}
+                min="1"
+                onChange={e => { setStockQty(e.target.value); setStockPinError(""); }}
+                onKeyDown={e => e.key === "Enter" && handleAddStockFromPos()}
+                style={{ textAlign: "center", fontSize: "1rem" }}
+              />
+            </div>
+
+            {/* Error */}
+            {stockPinError && (
+              <div style={{ padding: "0.5rem 0.75rem", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "0.5rem", color: "#dc2626", fontSize: "0.8rem", marginBottom: "0.875rem", fontWeight: 600 }}>
+                ⚠️ {stockPinError}
+              </div>
+            )}
+
+            {/* Buttons */}
+            <div style={{ display: "flex", gap: "0.625rem" }}>
+              <button
+                onClick={() => setOutOfStockProduct(null)}
+                style={{ flex: 1, padding: "0.65rem", border: "1px solid #e5e7eb", borderRadius: "0.625rem", background: "white", color: "#6b7280", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={handleAddStockFromPos}
+                disabled={stockLoading}
+                style={{ flex: 2, padding: "0.65rem", border: "none", borderRadius: "0.625rem", background: "linear-gradient(135deg, #26683a, #49a35c)", color: "white", fontWeight: 700, cursor: stockLoading ? "not-allowed" : "pointer", fontSize: "0.875rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.375rem" }}
+              >
+                <PackagePlus size={16} />
+                {stockLoading ? "جارٍ الإضافة..." : "إضافة للمخزون"}
+              </button>
             </div>
           </div>
         </div>

@@ -125,28 +125,28 @@ export default function PurchasesPage() {
     if (!storeId || !supplierName || items.length === 0) return;
     setSaving(true);
 
-    const saveOp = (async () => {
-      await addPurchase(storeId, {
+    const purchaseItems = [...items];
+    const productsById = new Map(activeProducts.map((p) => [p.id, p]));
+    const saveOps = [
+      addPurchase(storeId, {
         supplierName,
         invoiceNumber: invoiceNumber.trim(),
-        items,
+        items: purchaseItems,
         totalCost,
         paymentMethod,
         receivedBy: appUser!.uid,
         note: note.trim(),
         storeId,
-      });
-
-      for (const item of items) {
-        const p = activeProducts.find((p) => p.id === item.productId);
-        if (p) {
-          await updateProduct(storeId, item.productId, {
-            stock: p.stock + item.quantity,
-            purchasePrice: item.unitCost,
-          });
-        }
-      }
-    })();
+      }),
+      ...purchaseItems.flatMap((item) => {
+        const p = productsById.get(item.productId);
+        if (!p) return [];
+        return updateProduct(storeId, item.productId, {
+          stock: p.stock + item.quantity,
+          purchasePrice: item.unitCost,
+        });
+      }),
+    ];
 
     setShowForm(false);
     setItems([]);
@@ -159,9 +159,13 @@ export default function PurchasesPage() {
       alert("تم حفظ الاستلام محلياً. سيتم المزامنة عند عودة الإنترنت.");
     }
 
-    saveOp.catch((e) => {
-      console.error("Error saving purchase in background:", e);
-      alert("خطأ في حفظ المشتريات: " + (e instanceof Error ? e.message : String(e)));
+    saveOps.forEach((op) => {
+      op.catch((e) => {
+        console.error("Error saving purchase in background:", e);
+        if (!isOffline()) {
+          alert("خطأ في حفظ المشتريات: " + (e instanceof Error ? e.message : String(e)));
+        }
+      });
     });
   };
 

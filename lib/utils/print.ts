@@ -1,7 +1,6 @@
 import type { Sale } from "@/types/sale";
 import type { CreditCustomer, CreditTransaction } from "@/types/credit";
 import { STORE_NAME } from "@/lib/constants/branding";
-import { renderBarcodeSvg } from "@/lib/barcode/renderBarcode";
 import { formatCurrency } from "./currency";
 import { formatDateTime } from "./date";
 
@@ -65,13 +64,6 @@ function printScript(): string {
   </script>`;
 }
 
-function barcodeBlock(barcode?: string): string {
-  if (!barcode) return "";
-  const svg = renderBarcodeSvg(barcode);
-  if (!svg) return "";
-  return `<div class="barcode-wrap">${svg}</div>`;
-}
-
 export function printProductLabel(
   productName: string,
   sellingPrice: number,
@@ -96,28 +88,30 @@ export function printProductLabel(
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: space-around;
-      padding: 1.5mm;
+      justify-content: center;
+      gap: 1mm;
+      padding: 0.5mm;
       text-align: center;
     }
     .name {
-      font-size: 11.5pt;
-      font-weight: 700;
+      font-size: 16pt;
+      font-weight: 900;
       color: #000;
-      line-height: 1.2;
+      line-height: 1;
       width: 100%;
-      max-height: 9.5mm; /* Max 2 lines */
+      max-height: 9.5mm;
       overflow: hidden;
       display: -webkit-box;
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
-      word-break: break-all;
+      word-break: break-word;
     }
     .price {
-      font-size: 17pt;
-      font-weight: 800;
+      font-size: 21pt;
+      font-weight: 900;
       color: #000;
       white-space: nowrap;
+      line-height: 1;
     }
   </style>
 </head>
@@ -153,30 +147,32 @@ const labelPageStyles = `
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: space-around;
-      padding: 1.5mm;
+      justify-content: center;
+      gap: 1mm;
+      padding: 0.5mm;
       text-align: center;
       page-break-after: always;
     }
     .label-page:last-child { page-break-after: auto; }
     .name {
-      font-size: 11.5pt;
-      font-weight: 700;
+      font-size: 16pt;
+      font-weight: 900;
       color: #000;
-      line-height: 1.2;
+      line-height: 1;
       width: 100%;
-      max-height: 9.5mm; /* Max 2 lines */
+      max-height: 9.5mm;
       overflow: hidden;
       display: -webkit-box;
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
-      word-break: break-all;
+      word-break: break-word;
     }
     .price {
-      font-size: 17pt;
-      font-weight: 800;
+      font-size: 21pt;
+      font-weight: 900;
       color: #000;
       white-space: nowrap;
+      line-height: 1;
     }
 `;
 

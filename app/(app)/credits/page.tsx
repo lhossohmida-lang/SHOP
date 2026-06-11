@@ -233,8 +233,8 @@ export default function CreditsPage() {
     const balanceBefore = selectedCustomer.totalDebt;
     const balanceAfter = Math.max(0, balanceBefore - amount);
 
-    const saveOp = (async () => {
-      await addCreditTransaction(storeId, {
+    const saveOps = [
+      addCreditTransaction(storeId, {
         customerId: selectedCustomer.id,
         customerName: selectedCustomer.name,
         type: "payment",
@@ -244,12 +244,12 @@ export default function CreditsPage() {
         note: payNote.trim() || "",
         createdBy: appUser!.uid,
         createdAt: new Date(payDate),
-      });
-      await updateCreditCustomer(storeId, selectedCustomer.id, {
+      }),
+      updateCreditCustomer(storeId, selectedCustomer.id, {
         totalDebt: balanceAfter,
         lastTransactionAt: new Date(payDate),
-      });
-    })();
+      }),
+    ];
 
     setShowPayment(false);
     const customerToLoad = selectedCustomer;
@@ -260,9 +260,11 @@ export default function CreditsPage() {
       loadTransactions({ ...customerToLoad, totalDebt: balanceAfter }).catch(console.error);
     }
 
-    saveOp.catch((e) => {
-      console.error("Error saving payment:", e);
-      setErrorMsg("خطأ في تسجيل الدفعة: " + (e instanceof Error ? e.message : String(e)));
+    saveOps.forEach((op) => {
+      op.catch((e) => {
+        console.error("Error saving payment:", e);
+        setErrorMsg("خطأ في تسجيل الدفعة: " + (e instanceof Error ? e.message : String(e)));
+      });
     });
   };
 

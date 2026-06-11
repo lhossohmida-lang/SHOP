@@ -65,48 +65,62 @@ export default function AiPage() {
     try {
       const ctx = buildContext();
       const apiKey = process.env.NEXT_PUBLIC_OPENROUTER_API_KEY;
-      const model = process.env.NEXT_PUBLIC_AI_MODEL || "google/gemini-2.5-flash";
+      const model = process.env.NEXT_PUBLIC_AI_MODEL || "meta-llama/llama-3.1-8b-instruct:free";
 
       if (!apiKey || apiKey === "your-openrouter-key-here") {
-        setMessages(prev => [...prev, { role: "assistant", content: "⚠️ مفتاح OpenRouter API غير مُعين. أضف NEXT_PUBLIC_OPENROUTER_API_KEY في ملف .env.local للحصول على إجابات ذكية." }]);
+        setMessages(prev => [...prev, { role: "assistant", content: "⚠️ مفتاح OpenRouter API غير مُعين." }]);
         return;
       }
 
-      const systemPrompt = `أنت مساعد تحليلي ذكي لمتجر بقالة اسمه ${STORE_NAME}. لديك وصول لبيانات المتجر التالية:\n- ملخص المبيعات: ${ctx.salesSummary || "غير متوفر"}\n- حالة المخزون: ${ctx.inventorySummary || "غير متوفر"}\n- الكريديتيات (الديون): ${ctx.creditsSummary || "غير متوفر"}\n- أكثر المنتجات مبيعاً: ${ctx.topProducts || "غير متوفر"}\n\nأجب دائماً باللغة العربية بشكل موجز وعملي ومفيد. استخدم الأرقام والبيانات المتاحة في إجاباتك.`;
+      const systemPrompt = `You are an AI store assistant. Store data: Sales today: ${ctx.salesSummary}. Inventory: ${ctx.inventorySummary}. Credits/Debt: ${ctx.creditsSummary}. Top products: ${ctx.topProducts}. Always respond in Arabic language concisely and helpfully.`;
 
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://blgasm-pos.app",
-          "X-Title": "Blgasm POS",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: text },
-          ],
-        }),
-      });
+      // 45-second timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
+
+      let res: Response;
+      try {
+        res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://blgasm-pos.app",
+            "X-Title": "Blgasm POS",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: text },
+            ],
+          }),
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        const serverError = errData?.error?.message || `HTTP status ${res.status}`;
-        setMessages(prev => [...prev, { role: "assistant", content: `❌ فشل الطلب من خادم الذكاء الاصطناعي: ${serverError}` }]);
+        const serverError = errData?.error?.message || `HTTP ${res.status}`;
+        setMessages(prev => [...prev, { role: "assistant", content: `❌ خطأ من OpenRouter (نموذج: ${model}): ${serverError}` }]);
         return;
       }
       const data = await res.json();
       const reply = data.choices?.[0]?.message?.content || "عذراً، لم أتمكن من الإجابة في الوقت الحالي.";
       setMessages(prev => [...prev, { role: "assistant", content: reply }]);
     } catch (e: any) {
-      console.error("AI connection error:", e);
-      const errMsg = e instanceof Error ? e.message : String(e);
-      setMessages(prev => [...prev, { role: "assistant", content: `❌ حدث خطأ في الاتصال بخدمة الذكاء الاصطناعي: ${errMsg}` }]);
+      const isTimeout = e?.name === "AbortError";
+      const errMsg = isTimeout
+        ? "انتهت مهلة الاتصال (45 ثانية). تحقق من اتصالك بالإنترنت أو جرّب لاحقاً."
+        : (e instanceof Error ? e.message : String(e));
+      setMessages(prev => [...prev, { role: "assistant", content: `❌ ${errMsg}` }]);
     } finally {
       setLoading(false);
     }
   };
+
 
   return (
     <div className="animate-fade-in" style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 120px)" }}>

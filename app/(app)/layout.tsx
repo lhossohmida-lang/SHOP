@@ -8,14 +8,14 @@ import TopBar from "@/components/layout/TopBar";
 import { Loader2 } from "lucide-react";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { appUser, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!loading && !appUser) {
       router.replace("/login");
     }
-  }, [user, loading, router]);
+  }, [appUser, loading, router]);
 
   if (loading) {
     return (
@@ -28,7 +28,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!user) return null;
+  if (!appUser) return null;
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#f8fdf5" }}>

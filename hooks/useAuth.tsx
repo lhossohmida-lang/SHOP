@@ -12,6 +12,28 @@ import { auth, db } from "@/lib/firebase";
 import { STORE_NAME } from "@/lib/constants/branding";
 import type { AppUser } from "@/types/user";
 
+// ─── Local Cache for offline access ───────────────────────────────────────────
+const CACHE_KEY = "blgasm_app_user_v2";
+
+function saveUserToCache(user: AppUser) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(user)); } catch {}
+}
+
+function loadUserFromCache(): AppUser | null {
+  try {
+    const s = localStorage.getItem(CACHE_KEY);
+    if (!s) return null;
+    const obj = JSON.parse(s);
+    if (obj.createdAt) obj.createdAt = new Date(obj.createdAt);
+    return obj as AppUser;
+  } catch { return null; }
+}
+
+function clearUserCache() {
+  try { localStorage.removeItem(CACHE_KEY); } catch {}
+}
+// ──────────────────────────────────────────────────────────────────────────────
+
 interface AuthContextValue {
   user: User | null;
   appUser: AppUser | null;
@@ -35,7 +57,6 @@ export function useAuth() {
 async function signInAutomatically() {
   const email = process.env.NEXT_PUBLIC_AUTO_LOGIN_EMAIL?.trim();
   const password = process.env.NEXT_PUBLIC_AUTO_LOGIN_PASSWORD?.trim();
-
   if (email && password) {
     await signInWithEmailAndPassword(auth, email, password);
   }
@@ -63,42 +84,44 @@ function createFallbackAppUser(firebaseUser: User): AppUser {
 
 async function loadAppUser(firebaseUser: User): Promise<AppUser> {
   const fallback = createFallbackAppUser(firebaseUser);
-  const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
-
-  if (userDoc.exists()) {
-    const data = userDoc.data();
-    return {
-      ...fallback,
-      email: data.email || firebaseUser.email || "",
-      displayName: data.displayName || getDisplayName(firebaseUser),
-      role: data.role || "employee",
-      storeId: data.storeId || fallback.storeId,
-      isActive: data.isActive !== false,
-      createdAt: data.createdAt?.toDate() || fallback.createdAt,
-    };
-  }
-
-  await setDoc(doc(db, "users", firebaseUser.uid), {
-    email: fallback.email,
-    displayName: fallback.displayName,
-    role: fallback.role,
-    storeId: fallback.storeId,
-    isActive: fallback.isActive,
-    createdAt: serverTimestamp(),
-  });
-  await setDoc(
-    doc(db, "stores", fallback.storeId),
-    {
-      name: `${STORE_NAME} Store`,
-      address: "",
-      phone: "",
-      currency: "DZD",
-      taxRate: 0,
+  try {
+    const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+    if (userDoc.exists()) {
+      const data = userDoc.data();
+      return {
+        ...fallback,
+        email: data.email || firebaseUser.email || "",
+        displayName: data.displayName || getDisplayName(firebaseUser),
+        role: data.role || "employee",
+        storeId: data.storeId || fallback.storeId,
+        isActive: data.isActive !== false,
+        createdAt: data.createdAt?.toDate() || fallback.createdAt,
+      };
+    }
+    // New user — create Firestore docs in background
+    setDoc(doc(db, "users", firebaseUser.uid), {
+      email: fallback.email,
+      displayName: fallback.displayName,
+      role: fallback.role,
+      storeId: fallback.storeId,
+      isActive: fallback.isActive,
       createdAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
-
+    }).catch(() => {});
+    setDoc(
+      doc(db, "stores", fallback.storeId),
+      {
+        name: `${STORE_NAME} Store`,
+        address: "",
+        phone: "",
+        currency: "DZD",
+        taxRate: 0,
+        createdAt: serverTimestamp(),
+      },
+      { merge: true }
+    ).catch(() => {});
+  } catch {
+    // Offline: getDoc throws — fallback is fine
+  }
   return fallback;
 }
 
@@ -109,10 +132,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    let autoLoginStarted = false;
+    let autoLoginAttempted = false;
+
+    // Safety timeout: 4 seconds max. After that, use cache or show login.
     const timeout = setTimeout(() => {
-      if (active) setLoading(false);
-    }, 10000);
+      if (!active) return;
+      const cached = loadUserFromCache();
+      if (cached) {
+        setAppUser(cached);
+      }
+      setLoading(false);
+    }, 4000);
 
     const unsub = onAuthStateChanged(auth, (firebaseUser) => {
       clearTimeout(timeout);
@@ -121,19 +151,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(firebaseUser);
 
       if (!firebaseUser) {
-        const hasAutoLoginCredentials =
+        // No Firebase session — try auto-login
+        const hasAutoCredentials =
           !!process.env.NEXT_PUBLIC_AUTO_LOGIN_EMAIL?.trim() &&
           !!process.env.NEXT_PUBLIC_AUTO_LOGIN_PASSWORD?.trim();
 
-        if (hasAutoLoginCredentials && !autoLoginStarted) {
-          autoLoginStarted = true;
-          signInAutomatically().catch((err) => {
-            console.warn("Automatic sign-in failed:", err);
-            if (active) {
+        if (hasAutoCredentials && !autoLoginAttempted) {
+          autoLoginAttempted = true;
+          signInAutomatically().catch(() => {
+            if (!active) return;
+            // Auto-login failed (offline) — use cached user
+            const cached = loadUserFromCache();
+            if (cached) {
+              setAppUser(cached);
+            } else {
               setAppUser(null);
-              setLoading(false);
             }
+            setLoading(false);
           });
+          return; // Wait for next onAuthStateChanged
+        }
+
+        // No auto-credentials — check cache before showing login
+        const cached = loadUserFromCache();
+        if (cached) {
+          setAppUser(cached);
+          setLoading(false);
           return;
         }
 
@@ -142,28 +185,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // Skip anonymous users
       if (firebaseUser.isAnonymous && !firebaseUser.email) {
-        signOut(auth).catch((err) => {
-          console.warn("Failed to clear anonymous Firebase session:", err);
-        });
+        signOut(auth).catch(() => {});
         setUser(null);
         setAppUser(null);
         setLoading(false);
         return;
       }
 
-      setAppUser(createFallbackAppUser(firebaseUser));
+      // Set fallback immediately so UI is NOT blocked
+      const fallback = createFallbackAppUser(firebaseUser);
+      setAppUser(fallback);
+      saveUserToCache(fallback);
       setLoading(false);
 
-      loadAppUser(firebaseUser)
-        .then((loadedUser) => {
-          if (active && auth.currentUser?.uid === firebaseUser.uid) {
-            setAppUser(loadedUser);
-          }
-        })
-        .catch((err) => {
-          console.warn("Failed to load Firestore user profile:", err);
-        });
+      // Load full profile in background
+      loadAppUser(firebaseUser).then((loaded) => {
+        if (active && auth.currentUser?.uid === firebaseUser.uid) {
+          setAppUser(loaded);
+          saveUserToCache(loaded);
+        }
+      }).catch(() => {});
     });
 
     return () => {
@@ -178,6 +221,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logOut = async () => {
+    clearUserCache(); // Remove offline cache on logout
     await signOut(auth);
   };
 

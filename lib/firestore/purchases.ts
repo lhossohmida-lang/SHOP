@@ -12,7 +12,7 @@ import {
   limit,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { sanitizeFirestoreData } from "@/lib/firestore/helpers";
+import { sanitizeFirestoreData, getDocsOfflineFirst } from "@/lib/firestore/helpers";
 import type { Purchase } from "@/types/purchase";
 
 function toPurchase(id: string, data: Record<string, unknown>): Purchase {
@@ -71,7 +71,7 @@ export function subscribePurchases(
 
 export async function getPurchases(storeId: string): Promise<Purchase[]> {
   const q = query(purchasesCol(storeId), orderBy("createdAt", "desc"));
-  const snap = await getDocs(q);
+  const snap = await getDocsOfflineFirst(q);
   return snap.docs.map((d) => toPurchase(d.id, d.data()));
 }
 

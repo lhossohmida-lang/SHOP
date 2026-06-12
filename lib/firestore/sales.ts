@@ -16,7 +16,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { sanitizeFirestoreData, runOfflineWrites } from "@/lib/firestore/helpers";
+import { sanitizeFirestoreData, runOfflineWrites, getDocOfflineFirst, getDocsOfflineFirst } from "@/lib/firestore/helpers";
 import type { Sale } from "@/types/sale";
 
 function toSale(id: string, data: Record<string, unknown>): Sale {
@@ -66,9 +66,16 @@ export function subscribeSales(
   limitCount = 50
 ): () => void {
   const q = query(salesCol(storeId), orderBy("createdAt", "desc"), limit(limitCount));
-  return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => toSale(d.id, d.data())));
-  });
+  return onSnapshot(
+    q,
+    { includeMetadataChanges: false },
+    (snap) => {
+      callback(snap.docs.map((d) => toSale(d.id, d.data())));
+    },
+    (err) => {
+      console.warn("[Sales] onSnapshot error (offline or permission):", err.code);
+    }
+  );
 }
 
 export async function getSalesToday(storeId: string): Promise<Sale[]> {
@@ -79,7 +86,7 @@ export async function getSalesToday(storeId: string): Promise<Sale[]> {
     where("createdAt", ">=", start),
     orderBy("createdAt", "desc")
   );
-  const snap = await getDocs(q);
+  const snap = await getDocsOfflineFirst(q);
   return snap.docs.map((d) => toSale(d.id, d.data()));
 }
 
@@ -187,7 +194,7 @@ export async function deleteSaleAndRestoreStock(storeId: string, sale: Sale): Pr
 
 export async function getSale(storeId: string, saleId: string): Promise<Sale | null> {
   const ref = doc(db, "stores", storeId, "sales", saleId);
-  const snap = await getDoc(ref);
+  const snap = await getDocOfflineFirst(ref);
   if (snap.exists()) {
     return toSale(snap.id, snap.data());
   }

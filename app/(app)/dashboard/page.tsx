@@ -1,4 +1,5 @@
 "use client";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { useSales } from "@/hooks/useSales";
@@ -8,23 +9,63 @@ import { formatDateTime } from "@/lib/utils/date";
 import { TrendingUp, Users, AlertTriangle, Package } from "lucide-react";
 import Link from "next/link";
 import PasswordGate from "@/components/layout/PasswordGate";
+import { getSalesByDateRange } from "@/lib/firestore/sales";
+import type { Sale } from "@/types/sale";
 
 export default function DashboardPage() {
   const { appUser } = useAuth();
   const storeId = appUser?.storeId;
-  const { activeProducts, lowStock } = useProducts(storeId);
-  const { sales, todayTotal, todayCount, todayAvg } = useSales(storeId, 10);
+  const { products, activeProducts, lowStock } = useProducts(storeId);
+  const { sales, todayCount, todayAvg } = useSales(storeId, 10);
   const { totalDebt, activeCustomers } = useCredits(storeId);
 
-  // Today profit estimate
-  const todaySales = sales.filter(s => new Date(s.createdAt).toDateString() === new Date().toDateString());
-  const todayProfit = todaySales.reduce((sum, s) => {
-    const cost = s.items.reduce((c, item) => {
-      const p = activeProducts.find(p => p.id === item.productId);
-      return c + (p?.purchasePrice || 0) * item.quantity;
+  // Load last 30 days sales for Weekly & Monthly Profit + accurate Today Profit
+  const [thirtyDaysSales, setThirtyDaysSales] = useState<Sale[]>([]);
+  const [loadingStats, setLoadingStats] = useState(true);
+
+  useEffect(() => {
+    if (!storeId) return;
+    setLoadingStats(true);
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 30);
+    start.setHours(0, 0, 0, 0);
+
+    getSalesByDateRange(storeId, start, end)
+      .then((data) => {
+        setThirtyDaysSales(data);
+        setLoadingStats(false);
+      })
+      .catch((err) => {
+        console.error("Error fetching 30 days sales:", err);
+        setLoadingStats(false);
+      });
+  }, [storeId]);
+
+  const calculateProfit = useCallback((salesList: Sale[]) => {
+    return salesList.reduce((sum, s) => {
+      const cost = s.items.reduce((c, item) => {
+        const p = products.find(prod => prod.id === item.productId);
+        return c + (p?.purchasePrice || 0) * item.quantity;
+      }, 0);
+      return sum + s.total - cost;
     }, 0);
-    return sum + s.total - cost;
-  }, 0);
+  }, [products]);
+
+  // Today profit and sales total from the 30-day list (covers all sales today, not just last 10)
+  const todaySales = thirtyDaysSales.filter(s => new Date(s.createdAt).toDateString() === new Date().toDateString());
+  const todayTotal = todaySales.reduce((sum, s) => sum + s.total, 0);
+  const todayProfit = calculateProfit(todaySales);
+
+  // Weekly profit (last 7 days)
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  sevenDaysAgo.setHours(0, 0, 0, 0);
+  const weeklySales = thirtyDaysSales.filter(s => new Date(s.createdAt) >= sevenDaysAgo);
+  const weeklyProfit = calculateProfit(weeklySales);
+
+  // Monthly profit (last 30 days)
+  const monthlyProfit = calculateProfit(thirtyDaysSales);
 
   // Top 5 products
   const productSales: Record<string, { name: string; qty: number; revenue: number }> = {};
@@ -35,13 +76,13 @@ export default function DashboardPage() {
   }));
   const topProducts = Object.entries(productSales).sort((a, b) => b[1].qty - a[1].qty).slice(0, 5);
 
-  // Last 7 days bar chart
+  // Last 7 days bar chart (using the 30-day full list for correctness)
   const last7 = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(); d.setDate(d.getDate() - (6 - i));
     const dayStr = d.toDateString();
     return {
       label: d.toLocaleDateString("ar", { weekday: "short" }),
-      total: sales.filter(s => new Date(s.createdAt).toDateString() === dayStr).reduce((sum, s) => sum + s.total, 0),
+      total: thirtyDaysSales.filter(s => new Date(s.createdAt).toDateString() === dayStr).reduce((sum, s) => sum + s.total, 0),
     };
   });
   const maxVal = Math.max(...last7.map(d => d.total), 1);
@@ -57,8 +98,10 @@ export default function DashboardPage() {
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem", marginBottom: "1.5rem" }}>
         {[
-          { label: "مبيعات اليوم", value: formatCurrency(todayTotal), sub: `${todayCount} فاتورة`, cls: "stat-card-green", icon: "📈" },
-          { label: "ربح اليوم", value: formatCurrency(todayProfit), sub: `متوسط ${formatCurrency(todayAvg)}`, cls: "stat-card-orange", icon: "💰" },
+          { label: "مبيعات اليوم", value: loadingStats ? "..." : formatCurrency(todayTotal), sub: `${todaySales.length} فاتورة`, cls: "stat-card-green", icon: "📈" },
+          { label: "ربح اليوم", value: loadingStats ? "..." : formatCurrency(todayProfit), sub: `متوسط ${formatCurrency(todayAvg)}`, cls: "stat-card-orange", icon: "💰" },
+          { label: "ربح الأسبوع", value: loadingStats ? "..." : formatCurrency(weeklyProfit), sub: "آخر 7 أيام بالكامل", cls: "stat-card-green", icon: "📅" },
+          { label: "ربح الشهر", value: loadingStats ? "..." : formatCurrency(monthlyProfit), sub: "آخر 30 يوماً بالكامل", cls: "stat-card-orange", icon: "🗓️" },
           { label: "إجمالي الديون", value: formatCurrency(totalDebt), sub: `${activeCustomers.length} عميل`, cls: "stat-card-yellow", icon: "👥" },
           { label: "المنتجات", value: String(activeProducts.length), sub: `${lowStock.length} على وشك النفاد`, cls: "stat-card-blue", icon: "📦" },
         ].map((s, i) => (

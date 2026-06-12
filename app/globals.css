@@ -27,19 +27,67 @@ body {
 
 /* Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 14px;
+  height: 14px;
 }
 ::-webkit-scrollbar-track {
   background: #f1f8ee;
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb {
   background: #9bd28a;
-  border-radius: 3px;
+  border-radius: 7px;
+  border: 2px solid #f1f8ee;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #49a35c;
 }
+
+/* Scrollbar buttons (arrows) */
+::-webkit-scrollbar-button:single-button {
+  background-color: #f1f8ee;
+  display: block;
+  border-style: solid;
+  height: 14px;
+  width: 14px;
+}
+
+/* Vertical Up Arrow */
+::-webkit-scrollbar-button:single-button:vertical:decrement {
+  border-width: 0 4px 6px 4px;
+  border-color: transparent transparent #49a35c transparent;
+}
+::-webkit-scrollbar-button:single-button:vertical:decrement:hover {
+  border-color: transparent transparent #26683a transparent;
+}
+
+/* Vertical Down Arrow */
+::-webkit-scrollbar-button:single-button:vertical:increment {
+  border-width: 6px 4px 0 4px;
+  border-color: #49a35c transparent transparent transparent;
+}
+::-webkit-scrollbar-button:single-button:vertical:increment:hover {
+  border-color: #26683a transparent transparent transparent;
+}
+
+/* Horizontal Left Arrow (decrement) */
+::-webkit-scrollbar-button:single-button:horizontal:decrement {
+  border-width: 4px 6px 4px 0;
+  border-color: transparent #49a35c transparent transparent;
+}
+::-webkit-scrollbar-button:single-button:horizontal:decrement:hover {
+  border-color: transparent #26683a transparent transparent;
+}
+
+/* Horizontal Right Arrow (increment) */
+::-webkit-scrollbar-button:single-button:horizontal:increment {
+  border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent #49a35c;
+}
+::-webkit-scrollbar-button:single-button:horizontal:increment:hover {
+  border-color: transparent transparent transparent #26683a;
+}
+
 
 /* Custom component classes */
 .btn-primary {

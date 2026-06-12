@@ -8,6 +8,7 @@ import { usePosCart } from "@/hooks/usePosCart";
 import { addSale } from "@/lib/firestore/sales";
 import { updateStock } from "@/lib/firestore/products";
 import { addCreditTransaction, updateCreditCustomer } from "@/lib/firestore/credits";
+import { offlineAwareAwait } from "@/lib/firestore/helpers";
 import { generateReceiptNumber } from "@/lib/utils/date";
 import { printReceipt } from "@/lib/utils/print";
 import BarcodeScanner from "@/components/pos/BarcodeScanner";
@@ -80,7 +81,7 @@ export default function PosPage() {
     }
     setStockLoading(true);
     try {
-      await updateStock(storeId, outOfStockProduct.id, qty);
+      await offlineAwareAwait(updateStock(storeId, outOfStockProduct.id, qty), 2000);
       showMsg(`✅ تمت إضافة ${qty} وحدة لـ ${outOfStockProduct.nameAr || outOfStockProduct.name}`);
       setOutOfStockProduct(null);
     } catch (e) {

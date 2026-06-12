@@ -15,7 +15,7 @@ import {
   QueryConstraint,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { sanitizeFirestoreData } from "@/lib/firestore/helpers";
+import { sanitizeFirestoreData, getDocOfflineFirst, getDocsOfflineFirst } from "@/lib/firestore/helpers";
 import type { Product, ProductFormData } from "@/types/product";
 
 function toProduct(id: string, data: Record<string, unknown>): Product {
@@ -51,7 +51,7 @@ export function productsCol(storeId: string) {
 
 export async function getProducts(storeId: string): Promise<Product[]> {
   const q = query(productsCol(storeId), where("isActive", "==", true));
-  const snap = await getDocs(q);
+  const snap = await getDocsOfflineFirst(q);
   return snap.docs.map((d) => toProduct(d.id, d.data()));
 }
 
@@ -61,9 +61,17 @@ export function subscribeProducts(
 ): () => void {
   const constraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
   const q = query(productsCol(storeId), ...constraints);
-  return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => toProduct(d.id, d.data())));
-  });
+  return onSnapshot(
+    q,
+    { includeMetadataChanges: false },
+    (snap) => {
+      callback(snap.docs.map((d) => toProduct(d.id, d.data())));
+    },
+    (err) => {
+      // Silently handle offline errors — cached data remains usable
+      console.warn("[Products] onSnapshot error (offline or permission):", err.code);
+    }
+  );
 }
 
 export async function addProduct(
@@ -96,7 +104,7 @@ export async function updateStock(
   delta: number
 ): Promise<void> {
   const ref = doc(productsCol(storeId), productId);
-  const snap = await getDoc(ref);
+  const snap = await getDocOfflineFirst(ref);
   if (!snap.exists()) return;
   const current = (snap.data().stock as number) || 0;
   await updateDoc(ref, sanitizeFirestoreData({

@@ -11,7 +11,7 @@ import { formatCurrency } from "@/lib/utils/currency";
 import { formatDate, formatDateTime } from "@/lib/utils/date";
 import { printCustomerStatement } from "@/lib/utils/print";
 import { isOffline, offlineAwareAwait } from "@/lib/firestore/helpers";
-import { Plus, X, Search, CreditCard, Phone, Calendar, Trash2, Printer, TrendingUp, Receipt } from "lucide-react";
+import { Plus, X, Search, CreditCard, Phone, Calendar, Trash2, Printer, TrendingUp, Receipt, ArrowRight } from "lucide-react";
 import ExpensesPanel from "@/components/credits/ExpensesPanel";
 import type { CreditCustomer, CreditTransaction } from "@/types/credit";
 
@@ -583,8 +583,21 @@ export default function CreditsPage() {
                   </div>
                 </div>
               </div>
-              <button onClick={() => setDetailCustomer(null)} style={{ background: "none", border: "none", cursor: "pointer" }}>
-                <X size={20} />
+              <button
+                onClick={() => setDetailCustomer(null)}
+                className="btn-secondary"
+                style={{
+                  padding: "0.35rem 0.75rem",
+                  fontSize: "0.82rem",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.25rem",
+                  cursor: "pointer",
+                  borderRadius: "0.5rem",
+                }}
+              >
+                <ArrowRight size={16} />
+                رجوع
               </button>
             </div>
 
@@ -721,7 +734,7 @@ export default function CreditsPage() {
                   const c = customerToDelete;
                   setCustomerToDelete(null);
                   try {
-                    await deleteCreditCustomer(storeId, c.id);
+                    await offlineAwareAwait(deleteCreditCustomer(storeId, c.id));
                   } catch (e) {
                     alert("خطأ أثناء حذف العميل: " + e);
                   }

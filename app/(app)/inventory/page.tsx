@@ -4,9 +4,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { updateProduct } from "@/lib/firestore/products";
 import { getPosShortcuts, savePosShortcuts } from "@/lib/firestore/shortcuts";
+import { offlineAwareAwait } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
-import { Search, AlertTriangle, Edit2, Zap, X, Check } from "lucide-react";
+import { Search, AlertTriangle, Edit2, Zap, X, Check, Printer } from "lucide-react";
 import type { Product } from "@/types/product";
+
+type StockModal = "out" | "low" | null;
 
 export default function InventoryPage() {
   const { appUser } = useAuth();
@@ -18,9 +21,14 @@ export default function InventoryPage() {
   const [editingStock, setEditingStock] = useState<string | null>(null);
   const [newStock, setNewStock] = useState<number>(0);
 
+  // Stock modal (out / low)
+  const [stockModal, setStockModal] = useState<StockModal>(null);
+  const [modalEditingId, setModalEditingId] = useState<string | null>(null);
+  const [modalNewStock, setModalNewStock] = useState<number>(0);
+
   // Shortcuts modal
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [slots, setSlots] = useState<(string | null)[]>(Array(9).fill(null));
+  const [slots, setSlots] = useState<(string | null)[]>(Array(18).fill(null));
   const [savingShortcuts, setSavingShortcuts] = useState(false);
   const [shortcutSearch, setShortcutSearch] = useState("");
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
@@ -35,13 +43,19 @@ export default function InventoryPage() {
   });
 
   const totalValue = products.reduce((s, p) => s + p.stock * p.purchasePrice, 0);
-  const outOfStock = products.filter(p => p.stock === 0).length;
-  const lowStock = products.filter(p => p.stock > 0 && p.stock <= p.minStock).length;
+  const outOfStock = products.filter(p => p.stock === 0);
+  const lowStock = products.filter(p => p.stock > 0 && p.stock <= p.minStock);
 
   const saveStock = async (p: Product) => {
     if (!storeId) return;
-    await updateProduct(storeId, p.id, { stock: newStock });
+    await offlineAwareAwait(updateProduct(storeId, p.id, { stock: newStock }));
     setEditingStock(null);
+  };
+
+  const saveModalStock = async (p: Product) => {
+    if (!storeId) return;
+    await offlineAwareAwait(updateProduct(storeId, p.id, { stock: modalNewStock }));
+    setModalEditingId(null);
   };
 
   // Load shortcuts
@@ -92,6 +106,54 @@ export default function InventoryPage() {
     return p.nameAr.includes(shortcutSearch) || p.name.toLowerCase().includes(shortcutSearch.toLowerCase());
   }).slice(0, 30);
 
+  // Print stock list
+  const handlePrintStockList = (type: StockModal) => {
+    const list = type === "out" ? outOfStock : lowStock;
+    const title = type === "out" ? "قائمة المنتجات النافدة من المخزون" : "قائمة المنتجات ذات المخزون القليل";
+    const rows = list.map(p => `
+      <tr>
+        <td>${p.nameAr || p.name}</td>
+        <td>${p.barcode || "—"}</td>
+        <td>${p.category}</td>
+        <td>${p.stock} ${p.unit}</td>
+        <td>${p.minStock} ${p.unit}</td>
+        <td>${formatCurrency(p.purchasePrice)}</td>
+      </tr>
+    `).join("");
+    const html = `
+      <html dir="rtl"><head><meta charset="UTF-8">
+      <style>
+        body { font-family: Arial, sans-serif; font-size: 13px; padding: 20px; }
+        h1 { text-align: center; font-size: 18px; margin-bottom: 4px; }
+        p.sub { text-align: center; color: #666; font-size: 12px; margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #f1f8ee; padding: 8px; text-align: right; border: 1px solid #c5e5b8; font-size: 12px; }
+        td { padding: 7px 8px; border: 1px solid #e5e7eb; font-size: 12px; }
+        tr:nth-child(even) { background: #f9fafb; }
+        @media print { body { padding: 0; } }
+      </style>
+      </head><body>
+      <h1>${title}</h1>
+      <p class="sub">تاريخ الطباعة: ${new Date().toLocaleDateString("ar-DZ")} — الإجمالي: ${list.length} منتج</p>
+      <table>
+        <thead><tr><th>المنتج</th><th>الباركود</th><th>الفئة</th><th>المخزون الحالي</th><th>الحد الأدنى</th><th>سعر الشراء</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      </body></html>
+    `;
+    const win = window.open("", "_blank");
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+      win.print();
+    }
+  };
+
+  const modalProducts = stockModal === "out" ? outOfStock : stockModal === "low" ? lowStock : [];
+  const modalTitle = stockModal === "out" ? "🔴 المنتجات النافدة من المخزون" : "🟠 المنتجات ذات المخزون القليل";
+  const modalColor = stockModal === "out" ? "#dc2626" : "#f97316";
+  const modalBg = stockModal === "out" ? "#fff5f5" : "#fff7ed";
+
   return (
     <div className="animate-fade-in">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
@@ -117,19 +179,54 @@ export default function InventoryPage() {
         </button>
       </div>
 
-      {/* Stats */}
+      {/* Stats — out & low cards are clickable */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "1rem", marginBottom: "1.5rem" }}>
-        {[
-          { label: "قيمة المخزون", value: formatCurrency(totalValue), color: "#49a35c", bg: "#f1f8ee" },
-          { label: "إجمالي المنتجات", value: String(products.length), color: "#3b82f6", bg: "#eff6ff" },
-          { label: "نفدت من المخزون", value: String(outOfStock), color: "#dc2626", bg: "#fff5f5" },
-          { label: "مخزون قليل", value: String(lowStock), color: "#f97316", bg: "#fff7ed" },
-        ].map((s, i) => (
-          <div key={i} className="card-sm" style={{ border: `1px solid ${s.bg}`, background: s.bg }}>
-            <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: "0.25rem" }}>{s.label}</div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 700, color: s.color }}>{s.value}</div>
+        {/* Total value */}
+        <div className="card-sm" style={{ border: "1px solid #f1f8ee", background: "#f1f8ee" }}>
+          <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: "0.25rem" }}>قيمة المخزون</div>
+          <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#49a35c" }}>{formatCurrency(totalValue)}</div>
+        </div>
+        {/* Total products */}
+        <div className="card-sm" style={{ border: "1px solid #eff6ff", background: "#eff6ff" }}>
+          <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: "0.25rem" }}>إجمالي المنتجات</div>
+          <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#3b82f6" }}>{products.length}</div>
+        </div>
+        {/* Out of stock — CLICKABLE */}
+        <button
+          onClick={() => setStockModal("out")}
+          className="card-sm"
+          style={{
+            border: "1px solid #fca5a5", background: "#fff5f5", cursor: "pointer",
+            textAlign: "right", transition: "all 0.15s", outline: "none",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(220,38,38,0.2)"; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}
+          title="انقر لعرض تفاصيل المنتجات النافدة"
+        >
+          <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+            <span>نفدت من المخزون</span>
+            <span style={{ fontSize: "0.65rem", color: "#dc2626", fontWeight: 600 }}>↗ عرض</span>
           </div>
-        ))}
+          <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#dc2626" }}>{outOfStock.length}</div>
+        </button>
+        {/* Low stock — CLICKABLE */}
+        <button
+          onClick={() => setStockModal("low")}
+          className="card-sm"
+          style={{
+            border: "1px solid #fdba74", background: "#fff7ed", cursor: "pointer",
+            textAlign: "right", transition: "all 0.15s", outline: "none",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(249,115,22,0.2)"; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}
+          title="انقر لعرض تفاصيل المنتجات ذات المخزون القليل"
+        >
+          <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+            <span>مخزون قليل</span>
+            <span style={{ fontSize: "0.65rem", color: "#f97316", fontWeight: 600 }}>↗ عرض</span>
+          </div>
+          <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#f97316" }}>{lowStock.length}</div>
+        </button>
       </div>
 
       {/* Filters */}
@@ -198,6 +295,122 @@ export default function InventoryPage() {
         </table>
       </div>
 
+      {/* ─── Stock Detail Modal (out / low) ─── */}
+      {stockModal && (
+        <div className="modal-overlay" onClick={() => { setStockModal(null); setModalEditingId(null); }}>
+          <div
+            className="card animate-slide-up"
+            style={{ width: "100%", maxWidth: "780px", maxHeight: "88vh", display: "flex", flexDirection: "column" }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1rem", flexShrink: 0 }}>
+              <div>
+                <h2 style={{ fontWeight: 700, fontSize: "1.1rem", color: modalColor }}>{modalTitle}</h2>
+                <p style={{ fontSize: "0.8rem", color: "#6b7280", marginTop: "0.25rem" }}>
+                  الإجمالي: <strong>{modalProducts.length}</strong> منتج
+                  {stockModal === "low" && " — المخزون أقل من أو يساوي الحد الأدنى"}
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button
+                  onClick={() => handlePrintStockList(stockModal)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "0.4rem",
+                    padding: "0.45rem 0.9rem", borderRadius: "0.5rem",
+                    background: "linear-gradient(135deg, #3b82f6, #1d4ed8)",
+                    color: "white", border: "none", cursor: "pointer",
+                    fontWeight: 600, fontSize: "0.8rem",
+                  }}
+                >
+                  <Printer size={15} /> طباعة القائمة
+                </button>
+                <button onClick={() => { setStockModal(null); setModalEditingId(null); }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280" }}>
+                  <X size={22} />
+                </button>
+              </div>
+            </div>
+
+            {/* Products list */}
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              {modalProducts.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "3rem", color: "#9ca3af" }}>
+                  {stockModal === "out" ? "🎉 لا توجد منتجات نافدة!" : "🎉 لا توجد منتجات بمخزون قليل!"}
+                </div>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
+                  <thead>
+                    <tr style={{ background: modalBg, position: "sticky", top: 0 }}>
+                      <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: modalColor, fontSize: "0.78rem" }}>المنتج</th>
+                      <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: modalColor, fontSize: "0.78rem" }}>الفئة</th>
+                      <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: modalColor, fontSize: "0.78rem" }}>المخزون</th>
+                      <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: modalColor, fontSize: "0.78rem" }}>الحد الأدنى</th>
+                      <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: modalColor, fontSize: "0.78rem" }}>سعر الشراء</th>
+                      <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: modalColor, fontSize: "0.78rem" }}>تعديل المخزون</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {modalProducts.map(p => (
+                      <tr key={p.id} style={{ borderBottom: "1px solid #f3f4f6" }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "#f9fafb")}
+                        onMouseLeave={e => (e.currentTarget.style.background = "")}>
+                        <td style={{ padding: "0.6rem 0.75rem" }}>
+                          <div style={{ fontWeight: 600, color: "#17231c" }}>{p.nameAr || p.name}</div>
+                          {p.nameAr && <div style={{ fontSize: "0.7rem", color: "#9ca3af" }}>{p.name}</div>}
+                        </td>
+                        <td style={{ padding: "0.6rem 0.75rem" }}><span className="badge-green">{p.category}</span></td>
+                        <td style={{ padding: "0.6rem 0.75rem" }}>
+                          <span className={p.stock === 0 ? "badge-red" : "badge-orange"}>
+                            {p.stock} {p.unit}
+                          </span>
+                        </td>
+                        <td style={{ padding: "0.6rem 0.75rem", color: "#6b7280" }}>{p.minStock} {p.unit}</td>
+                        <td style={{ padding: "0.6rem 0.75rem", color: "#6b7280" }}>{formatCurrency(p.purchasePrice)}</td>
+                        <td style={{ padding: "0.6rem 0.75rem" }}>
+                          {modalEditingId === p.id ? (
+                            <div style={{ display: "flex", gap: "0.25rem", alignItems: "center" }}>
+                              <input
+                                type="number" min="0"
+                                value={modalNewStock}
+                                onChange={e => setModalNewStock(Number(e.target.value))}
+                                autoFocus
+                                style={{ width: "75px", border: "1px solid #49a35c", borderRadius: "4px", padding: "3px 6px", fontSize: "0.875rem" }}
+                              />
+                              <button onClick={() => saveModalStock(p)}
+                                style={{ background: "#49a35c", color: "white", border: "none", borderRadius: "4px", padding: "3px 10px", cursor: "pointer", fontSize: "0.8rem" }}>✓</button>
+                              <button onClick={() => setModalEditingId(null)}
+                                style={{ background: "#e5e7eb", border: "none", borderRadius: "4px", padding: "3px 8px", cursor: "pointer", fontSize: "0.8rem" }}>✕</button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => { setModalEditingId(p.id); setModalNewStock(p.stock); }}
+                              style={{
+                                display: "flex", alignItems: "center", gap: "0.3rem",
+                                padding: "0.3rem 0.6rem", borderRadius: "0.375rem",
+                                border: "1px solid #c5e5b8", background: "#f1f8ee",
+                                cursor: "pointer", fontSize: "0.78rem", color: "#26683a", fontWeight: 600,
+                              }}
+                            >
+                              <Edit2 size={12} /> تعديل
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ paddingTop: "0.75rem", borderTop: "1px solid #f3f4f6", textAlign: "left", flexShrink: 0, marginTop: "0.5rem" }}>
+              <button onClick={() => { setStockModal(null); setModalEditingId(null); }} className="btn-secondary">إغلاق</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Shortcuts Modal */}
       {showShortcuts && (
         <div className="modal-overlay" onClick={() => setShowShortcuts(false)}>
@@ -209,7 +422,7 @@ export default function InventoryPage() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
               <div>
                 <h2 style={{ fontWeight: 700, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <Zap size={20} color="#f59e0b" /> الاختصارات السريعة (3×3)
+                  <Zap size={20} color="#f59e0b" /> الاختصارات السريعة (3×6)
                 </h2>
                 <p style={{ fontSize: "0.8rem", color: "#6b7280", marginTop: "0.25rem" }}>
                   اضغط على خانة لتحديد المنتج المرتبط بها. ستظهر الاختصارات في نقطة البيع.
@@ -220,7 +433,7 @@ export default function InventoryPage() {
               </button>
             </div>
 
-            {/* 3x3 Grid */}
+            {/* 3x6 Grid */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem", marginBottom: "1.5rem" }}>
               {slots.map((id, idx) => {
                 const product = id ? products.find(p => p.id === id) : null;
@@ -256,7 +469,7 @@ export default function InventoryPage() {
                             {product.nameAr || product.name}
                           </div>
                           <div style={{ fontSize: "0.72rem", color: "#26683a" }}>
-                            {formatCurrency(product.purchasePrice)}
+                            {formatCurrency(product.sellingPrice)}
                           </div>
                           <div style={{ fontSize: "0.68rem", color: product.stock === 0 ? "#dc2626" : "#9ca3af" }}>
                             مخزون: {product.stock} {product.unit}
@@ -324,9 +537,9 @@ export default function InventoryPage() {
                         gap: "0.35rem",
                       }}
                     >
-                      {slots[activeSlot] === p.id && <Check size={12} color="#f59e0b" />}
+                       {slots[activeSlot] === p.id && <Check size={12} color="#f59e0b" />}
                       {p.nameAr || p.name}
-                      <span style={{ color: "#6b7280", fontWeight: 400 }}>({formatCurrency(p.purchasePrice)})</span>
+                      <span style={{ color: "#6b7280", fontWeight: 400 }}>({formatCurrency(p.sellingPrice)})</span>
                     </button>
                   ))}
                 </div>
@@ -351,4 +564,3 @@ export default function InventoryPage() {
     </div>
   );
 }
-

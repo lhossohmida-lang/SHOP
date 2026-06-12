@@ -1,3 +1,14 @@
+import {
+  DocumentReference,
+  DocumentSnapshot,
+  Query,
+  QuerySnapshot,
+  getDoc,
+  getDocFromCache,
+  getDocs,
+  getDocsFromCache,
+} from "firebase/firestore";
+
 /** Strip undefined values — Firestore rejects undefined fields. */
 export function sanitizeFirestoreData<T extends Record<string, unknown>>(data: T): T {
   const out: Record<string, unknown> = {};
@@ -12,15 +23,47 @@ export function isOffline(): boolean {
 }
 
 /**
- * When offline, Firestore queues writes locally but promises may not resolve quickly.
- * Proceed after a short timeout so the UI is not stuck on "جارٍ الحفظ...".
+ * Attempt to read a document from cache first.
+ * If cached, resolves instantly. If not, falls back to server.
+ */
+export async function getDocOfflineFirst(ref: DocumentReference): Promise<DocumentSnapshot> {
+  try {
+    const snap = await getDocFromCache(ref);
+    if (snap.exists()) {
+      return snap;
+    }
+  } catch (e) {
+    // Cache miss or cached version unavailable, fall back to server
+  }
+  return getDoc(ref);
+}
+
+/**
+ * Attempt to read query documents from cache first.
+ * If cached, resolves instantly. If not, falls back to server.
+ */
+export async function getDocsOfflineFirst(q: Query): Promise<QuerySnapshot> {
+  try {
+    const snap = await getDocsFromCache(q);
+    if (!snap.empty) {
+      return snap;
+    }
+  } catch (e) {
+    // Cache miss or cached version unavailable, fall back to server
+  }
+  return getDocs(q);
+}
+
+/**
+ * When offline or on a weak internet connection, Firestore queues writes locally,
+ * but promises may not resolve quickly.
+ * Proceed after a short timeout so the UI is not stuck on "Saving...".
  */
 export async function offlineAwareAwait<T>(
   promise: Promise<T>,
   timeoutMs = 2500
 ): Promise<T | undefined> {
-  if (!isOffline()) return promise;
-
+  // Always run the race to handle weak connections where isOffline() is false
   const result = await Promise.race([
     promise.then((value) => ({ done: true as const, value })),
     new Promise<{ done: false }>((resolve) =>
@@ -29,7 +72,11 @@ export async function offlineAwareAwait<T>(
   ]);
 
   if (result.done) return result.value;
-  promise.catch(() => {});
+  
+  // If timed out, handle failure gracefully in the background
+  promise.catch((err) => {
+    console.warn("Background firestore write timed out or failed:", err);
+  });
   return undefined;
 }
 

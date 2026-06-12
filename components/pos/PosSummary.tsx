@@ -48,7 +48,7 @@ export default function PosSummary({
         color: "white",
       }}>
         <div style={{ fontSize: "0.78rem", opacity: 0.85, marginBottom: "0.25rem" }}>
-          {isCash ? "💵 بيع نقدي (سعر الشراء)" : "📋 بيع كريدي (سعر البيع)"}
+          {isCash ? "💵 بيع نقدي (سعر البيع)" : "📋 بيع كريدي (سعر البيع)"}
         </div>
         <div style={{ fontSize: "1.75rem", fontWeight: 800 }}>{formatCurrency(total)}</div>
         <div style={{ fontSize: "0.78rem", opacity: 0.75, marginTop: "0.2rem" }}>

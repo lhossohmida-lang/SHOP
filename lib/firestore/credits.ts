@@ -13,7 +13,7 @@ import {
   deleteDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { sanitizeFirestoreData } from "@/lib/firestore/helpers";
+import { sanitizeFirestoreData, getDocsOfflineFirst } from "@/lib/firestore/helpers";
 import type { CreditCustomer, CreditTransaction } from "@/types/credit";
 
 function toCustomer(id: string, data: Record<string, unknown>): CreditCustomer {
@@ -154,9 +154,16 @@ export function subscribeCreditCustomers(
   callback: (customers: CreditCustomer[]) => void
 ): () => void {
   const q = query(creditCustomersCol(storeId), orderBy("totalDebt", "desc"));
-  return onSnapshot(q, (snap) => {
-    callback(snap.docs.map((d) => toCustomer(d.id, d.data())));
-  });
+  return onSnapshot(
+    q,
+    { includeMetadataChanges: false },
+    (snap) => {
+      callback(snap.docs.map((d) => toCustomer(d.id, d.data())));
+    },
+    (err) => {
+      console.warn("[Credits] onSnapshot error (offline or permission):", err.code);
+    }
+  );
 }
 
 export async function addCreditTransaction(
@@ -181,7 +188,7 @@ export async function getCreditTransactions(
     creditTransactionsCol(storeId),
     where("customerId", "==", customerId)
   );
-  const snap = await getDocs(q);
+  const snap = await getDocsOfflineFirst(q);
   return sortTransactionsNewestFirst(snap.docs.map((d) => toTransaction(d.id, d.data())));
 }
 

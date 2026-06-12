@@ -64,56 +64,91 @@ export default function AiPage() {
     setLoading(true);
     try {
       const ctx = buildContext();
-      const apiKey = process.env.NEXT_PUBLIC_OPENROUTER_API_KEY;
-      const model = process.env.NEXT_PUBLIC_AI_MODEL || "meta-llama/llama-3.1-8b-instruct:free";
 
-      if (!apiKey || apiKey === "your-openrouter-key-here") {
-        setMessages(prev => [...prev, { role: "assistant", content: "⚠️ مفتاح OpenRouter API غير مُعين." }]);
-        return;
+      // Detect environment: Electron serves from 127.0.0.1, APK from localhost/capacitor
+      const isElectron =
+        typeof window !== "undefined" && window.location.hostname === "127.0.0.1";
+
+      let reply = "";
+      let success = false;
+
+      if (isElectron) {
+        // ── Electron: call local Next.js API route first ──
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+        try {
+          const res = await fetch("/api/ai/chat", {
+            method: "POST",
+            signal: controller.signal,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: text, context: ctx }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.reply && !data.reply.startsWith("❌")) {
+              reply = data.reply;
+              success = true;
+            }
+          }
+        } catch (err) {
+          console.warn("Local API route failed, trying direct client-side fetch...", err);
+        } finally {
+          clearTimeout(timeoutId);
+        }
       }
 
-      const systemPrompt = `You are an AI store assistant. Store data: Sales today: ${ctx.salesSummary}. Inventory: ${ctx.inventorySummary}. Credits/Debt: ${ctx.creditsSummary}. Top products: ${ctx.topProducts}. Always respond in Arabic language concisely and helpfully.`;
+      if (!success) {
+        // ── Direct client-side fetch to OpenRouter (for APK, Web, or as fallback for EXE) ──
+        const apiKey = process.env.NEXT_PUBLIC_OPENROUTER_API_KEY;
+        const model = process.env.NEXT_PUBLIC_AI_MODEL || "meta-llama/llama-3.1-8b-instruct:free";
 
-      // 45-second timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 45000);
+        if (!apiKey || apiKey === "your-openrouter-key-here") {
+          setMessages(prev => [...prev, { role: "assistant", content: "⚠️ مفتاح OpenRouter API غير مُعين." }]);
+          return;
+        }
 
-      let res: Response;
-      try {
-        res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-          method: "POST",
-          signal: controller.signal,
-          headers: {
-            "Authorization": `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://blgasm-pos.app",
-            "X-Title": "Blgasm POS",
-          },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: text },
-            ],
-          }),
-        });
-      } finally {
-        clearTimeout(timeoutId);
+        const systemPrompt = `You are a smart store assistant. Store data: Sales: ${ctx.salesSummary}. Inventory: ${ctx.inventorySummary}. Credits: ${ctx.creditsSummary}. Top products: ${ctx.topProducts}. Always respond in Arabic language concisely.`;
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 45000);
+        let res: Response;
+        try {
+          res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              "Authorization": `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+              "HTTP-Referer": "https://blgasm-pos.app",
+              "X-Title": "Blgasm POS",
+            },
+            body: JSON.stringify({
+              model,
+              messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: text },
+              ],
+            }),
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const serverError = errData?.error?.message || `HTTP ${res.status}`;
+          reply = `❌ خطأ من OpenRouter (${model}): ${serverError}`;
+        } else {
+          const data = await res.json();
+          reply = data.choices?.[0]?.message?.content || "عذراً، لم أتمكن من الإجابة في الوقت الحالي.";
+        }
       }
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        const serverError = errData?.error?.message || `HTTP ${res.status}`;
-        setMessages(prev => [...prev, { role: "assistant", content: `❌ خطأ من OpenRouter (نموذج: ${model}): ${serverError}` }]);
-        return;
-      }
-      const data = await res.json();
-      const reply = data.choices?.[0]?.message?.content || "عذراً، لم أتمكن من الإجابة في الوقت الحالي.";
       setMessages(prev => [...prev, { role: "assistant", content: reply }]);
     } catch (e: any) {
       const isTimeout = e?.name === "AbortError";
       const errMsg = isTimeout
-        ? "انتهت مهلة الاتصال (45 ثانية). تحقق من اتصالك بالإنترنت أو جرّب لاحقاً."
+        ? "انتهت مهلة الاتصال. تحقق من اتصالك بالإنترنت."
         : (e instanceof Error ? e.message : String(e));
       setMessages(prev => [...prev, { role: "assistant", content: `❌ ${errMsg}` }]);
     } finally {

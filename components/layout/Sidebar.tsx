@@ -37,7 +37,7 @@ export default function Sidebar() {
   const { appUser, logOut } = useAuth();
   const storeId = appUser?.storeId;
   const { activeProducts } = useProducts(storeId);
-  const [shortcuts, setShortcuts] = useState<(Product | null)[]>(Array(9).fill(null));
+  const [shortcuts, setShortcuts] = useState<(Product | null)[]>(Array(18).fill(null));
 
   useEffect(() => {
     if (!storeId || activeProducts.length === 0 || pathname !== "/pos") return;
@@ -127,6 +127,8 @@ export default function Sidebar() {
           padding: "0.75rem 1rem",
           borderTop: "1px solid #f3f4f6",
           background: "#fafafa",
+          maxHeight: "260px",
+          overflowY: "auto",
         }}>
           <div style={{
             fontSize: "0.75rem",

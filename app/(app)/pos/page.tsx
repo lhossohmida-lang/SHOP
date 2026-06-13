@@ -4,12 +4,13 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { useCredits } from "@/hooks/useCredits";
 import { useUsbScanner } from "@/hooks/useUsbScanner";
-import { usePosCart } from "@/hooks/usePosCart";
+import { usePosCart, lineTotal } from "@/hooks/usePosCart";
 import { addSale } from "@/lib/firestore/sales";
 import { updateStock } from "@/lib/firestore/products";
 import { addCreditTransaction, updateCreditCustomer } from "@/lib/firestore/credits";
 import { offlineAwareAwait } from "@/lib/firestore/helpers";
 import { generateReceiptNumber } from "@/lib/utils/date";
+import { normalizeDigits, normalizeScannedDigits, productHasBarcode, productMatchesBarcodeSearch } from "@/lib/utils/barcode";
 import { printReceipt } from "@/lib/utils/print";
 import BarcodeScanner from "@/components/pos/BarcodeScanner";
 import PosTable from "@/components/pos/PosTable";
@@ -50,6 +51,9 @@ export default function PosPage() {
 
   const searchRef = useRef<HTMLInputElement>(null);
 
+  // المنتج الذي يجب تركيز حقل مبلغه بعد الإضافة (nonce يتغيّر مع كل إضافة لإعادة التركيز).
+  const [amountFocus, setAmountFocus] = useState<{ id: string; nonce: number }>({ id: "", nonce: 0 });
+
   const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
   const tryAddProduct = useCallback((p: Product) => {
@@ -65,6 +69,8 @@ export default function PosPage() {
       showMsg("❌ المنتج نفد من المخزون ولا يمكن إدخاله");
       return false;
     }
+    // انقل المؤشّر تلقائياً لحقل المبلغ الخاص بهذا السطر.
+    setAmountFocus(f => ({ id: p.id, nonce: f.nonce + 1 }));
     return true;
   }, [addProduct]);
 
@@ -122,15 +128,16 @@ export default function PosPage() {
     ? activeProducts.filter(p =>
         p.nameAr.includes(search) ||
         p.name.toLowerCase().includes(search.toLowerCase()) ||
-        (p.barcode && p.barcode.includes(search))
+        productMatchesBarcodeSearch(p, search)
       ).slice(0, 8)
     : [];
 
   const handleBarcode = useCallback((code: string) => {
-    const p = activeProducts.find(p => p.barcode === code.trim());
+    const normalized = normalizeScannedDigits(code.trim());
+    const p = activeProducts.find(p => productHasBarcode(p, normalized));
     if (p) {
       if (tryAddProduct(p)) { setSearch(""); setShowDropdown(false); }
-    } else { setSearch(code); setShowDropdown(true); }
+    } else { setSearch(normalized); setShowDropdown(true); }
     setShowCamera(false);
   }, [activeProducts, tryAddProduct]);
 
@@ -144,7 +151,7 @@ export default function PosPage() {
         productName: l.productName,
         quantity: l.quantity,
         unitPrice: l.sellingPrice,
-        totalPrice: l.sellingPrice * l.quantity,
+        totalPrice: lineTotal(l),
       }));
 
   const handleConfirm = useCallback(async (shouldPrint: boolean = true) => {
@@ -192,6 +199,8 @@ export default function PosPage() {
       setActiveMobileTab("cart");
       showMsg(`✅ تم البيع — ${receiptNumber}`);
       setLoading(false);
+      // أعد التركيز على خانة البحث حتى يستمر المسح/الكتابة بعد كل عملية بيع
+      setTimeout(() => searchRef.current?.focus(), 0);
 
       // Print immediately
       if (shouldPrint) {
@@ -245,7 +254,7 @@ export default function PosPage() {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "F10") {
         e.preventDefault();
-        handleConfirm();
+        handleConfirm(false); // تأكيد الطلبية دون أي طباعة
       }
     };
     window.addEventListener("keydown", handler);
@@ -331,13 +340,14 @@ export default function PosPage() {
             placeholder="ابحث بالاسم أو الباركود، أو امسح مباشرة..."
             value={search}
             autoComplete="off"
-            onChange={e => { setSearch(e.target.value); setShowDropdown(true); }}
+            onChange={e => { setSearch(normalizeDigits(e.target.value)); setShowDropdown(true); }}
             onFocus={() => setShowDropdown(true)}
             onKeyDown={e => {
               if (e.key === "Enter") {
-                const trimmed = search.trim();
+                // الباركود الممسوح قد يصل برموز لوحة المفاتيح الفرنسية → حوّله لأرقام
+                const trimmed = normalizeScannedDigits(search.trim());
                 if (trimmed) {
-                  const exactProduct = activeProducts.find(p => p.barcode === trimmed);
+                  const exactProduct = activeProducts.find(p => productHasBarcode(p, trimmed));
                   if (exactProduct) {
                     if (tryAddProduct(exactProduct)) {
                       setSearch("");
@@ -460,14 +470,18 @@ export default function PosPage() {
                 <span className="badge-green">{cart.lines.length} صنف</span>
               )}
               <span style={{ marginRight: "auto", fontSize: "0.72rem", color: "#9ca3af", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                اضغط <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: "0.7rem", fontFamily: "monospace" }}>F1</kbd> نافذة جديدة &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #c5e5b8", background: "#f1f8ee", fontSize: "0.7rem", fontFamily: "monospace", color: "#26683a" }}>F10</kbd> تأكيد الطلبية
+                اضغط <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: "0.7rem", fontFamily: "monospace" }}>F1</kbd> نافذة جديدة &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #c5e5b8", background: "#f1f8ee", fontSize: "0.7rem", fontFamily: "monospace", color: "#26683a" }}>F10</kbd> تأكيد بدون طباعة
               </span>
             </div>
             <PosTable
               lines={cart.lines}
               mode={mode}
               onQty={cart.updateQty}
+              onAmount={cart.setLineAmount}
               onRemove={cart.removeLine}
+              focusProductId={amountFocus.id}
+              focusNonce={amountFocus.nonce}
+              onAmountEnter={() => searchRef.current?.focus()}
             />
 
             {/* Mobile-only go to checkout sticky button */}

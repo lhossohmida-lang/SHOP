@@ -1,10 +1,12 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
+import { useUsbScanner } from "@/hooks/useUsbScanner";
 import { addProduct, updateProduct, deleteProduct } from "@/lib/firestore/products";
 import { isOffline, offlineAwareAwait, offlineAwareDelete } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
+import { normalizeDigits, normalizeScannedDigits, productHasBarcode, productMatchesBarcodeSearch } from "@/lib/utils/barcode";
 import { printProductLabel, printProductLabelsBatch } from "@/lib/utils/print";
 import { ProductForm } from "@/components/products/ProductForm";
 import type { ProductFormData, Product } from "@/types/product";
@@ -16,7 +18,9 @@ function getDuplicateProductError(
   editingId?: string
 ): string | null {
   const nameAr = data.nameAr.trim().toLowerCase();
-  const barcode = data.barcode.trim();
+  const newBarcodes = (data.barcodes?.length ? data.barcodes : data.barcode ? [data.barcode] : [])
+    .map((b) => normalizeDigits(b).trim())
+    .filter(Boolean);
 
   for (const p of products) {
     if (editingId && p.id === editingId) continue;
@@ -24,8 +28,9 @@ function getDuplicateProductError(
     if (nameAr && p.nameAr.trim().toLowerCase() === nameAr) {
       return `المنتج "${data.nameAr.trim()}" موجود أصلاً ولا يمكن إضافته من جديد.`;
     }
-    if (barcode && p.barcode.trim() === barcode) {
-      return `الباركود "${barcode}" مستخدم لمنتج "${p.nameAr || p.name}" ولا يمكن إضافته من جديد.`;
+    const clash = newBarcodes.find((bc) => productHasBarcode(p, bc));
+    if (clash) {
+      return `الباركود "${clash}" مستخدم لمنتج "${p.nameAr || p.name}" ولا يمكن إضافته من جديد.`;
     }
   }
   return null;
@@ -45,13 +50,33 @@ export default function ProductsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [toast, setToast] = useState("");
+
+  const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
+
+  // امسح خانة البحث بعد التعرّف على الباركود حتى يمكن تسجيل باركود جديد
+  // (نفس سلوك خانة البيع). يبقى المبلغ المكتوب إذا لم يُعثر على المنتج للبحث اليدوي.
+  const announceScannedProduct = useCallback((code: string, silentIfMissing = false) => {
+    const normalized = normalizeScannedDigits(code.trim());
+    if (!normalized) return;
+    const p = products.find((prod) => productHasBarcode(prod, normalized));
+    if (p) {
+      showMsg(`✅ ${p.nameAr || p.name} — ${formatCurrency(p.sellingPrice)} — المخزون: ${p.stock} ${p.unit}`);
+      setSearch("");
+    } else if (!silentIfMissing) {
+      showMsg(`⚠️ لا يوجد منتج بهذا الباركود: ${normalized}`);
+    }
+  }, [products]);
+
+  // قارئ USB عندما لا تكون أي خانة في وضع التركيز
+  useUsbScanner(announceScannedProduct, !showForm && !productToDelete && !showBulkDeleteConfirm);
 
   const filtered = products.filter(
     (p) =>
       !search ||
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.nameAr.includes(search) ||
-      p.barcode.includes(search)
+      productMatchesBarcodeSearch(p, search)
   );
 
   const selectedProducts = useMemo(
@@ -171,6 +196,15 @@ export default function ProductsPage() {
 
   return (
     <div className="animate-fade-in">
+      {toast && (
+        <div style={{
+          position: "fixed", top: "1rem", left: "50%", transform: "translateX(-50%)",
+          padding: "0.75rem 1.5rem", borderRadius: "0.75rem", zIndex: 200,
+          background: toast.startsWith("⚠️") ? "#dc2626" : "#26683a",
+          color: "white", fontWeight: 600, fontSize: "0.875rem",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.2)", maxWidth: "90vw", textAlign: "center",
+        }}>{toast}</div>
+      )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "0.75rem" }}>
         <div>
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#17231c" }}>المنتجات</h1>
@@ -232,9 +266,22 @@ export default function ProductsPage() {
         <input
           className="input-field"
           style={{ paddingRight: "2.5rem" }}
-          placeholder="بحث بالاسم أو الباركود..."
+          placeholder="بحث بالاسم أو الباركود، أو امسح مباشرة..."
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          autoFocus
+          autoComplete="off"
+          onChange={(e) => setSearch(normalizeDigits(e.target.value))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              // حوّل رموز لوحة المفاتيح الفرنسية/العربية إلى أرقام لاكتشاف الباركود الممسوح
+              const normalized = normalizeScannedDigits(search.trim());
+              // باركود (أرقام فقط) → أعلن المنتج وامسح الخانة؛ البحث بالاسم لا يتأثر
+              if (/^\d+$/.test(normalized)) {
+                announceScannedProduct(normalized, true);
+                e.preventDefault();
+              }
+            }
+          }}
         />
       </div>
 

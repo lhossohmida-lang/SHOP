@@ -24,6 +24,12 @@ function toProduct(id: string, data: Record<string, unknown>): Product {
     name: (data.name as string) || "",
     nameAr: (data.nameAr as string) || "",
     barcode: (data.barcode as string) || "",
+    // المنتجات القديمة تملك barcode واحداً فقط — نحوّله إلى مصفوفة للتوافق
+    barcodes: Array.isArray(data.barcodes)
+      ? (data.barcodes as string[]).map(String).filter(Boolean)
+      : data.barcode
+        ? [String(data.barcode)]
+        : [],
     category: (data.category as string) || "",
     purchasePrice: (data.purchasePrice as number) || 0,
     sellingPrice: (data.sellingPrice as number) || 0,

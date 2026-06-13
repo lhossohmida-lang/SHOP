@@ -9,6 +9,7 @@ import { updateProduct } from "@/lib/firestore/products";
 import { isOffline, offlineAwareAwait } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDateTime } from "@/lib/utils/date";
+import { normalizeDigits, normalizeScannedDigits, productHasBarcode, productMatchesBarcodeSearch } from "@/lib/utils/barcode";
 import BarcodeScanner from "@/components/pos/BarcodeScanner";
 import { Plus, X, Trash2, Search, TruckIcon, Camera } from "lucide-react";
 import type { PurchaseItem } from "@/types/purchase";
@@ -38,7 +39,7 @@ export default function PurchasesPage() {
             (p) =>
               p.nameAr.includes(productSearch) ||
               p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-              p.barcode.includes(productSearch)
+              productMatchesBarcodeSearch(p, productSearch)
           )
           .slice(0, 6)
       : [];
@@ -62,11 +63,12 @@ export default function PurchasesPage() {
 
   const handleBarcodeScanned = useCallback(
     (barcode: string) => {
-      const product = activeProducts.find((p) => p.barcode === barcode);
+      const normalized = normalizeScannedDigits(barcode.trim());
+      const product = activeProducts.find((p) => productHasBarcode(p, normalized));
       if (product) {
         addItem(product);
       } else {
-        setProductSearch(barcode);
+        setProductSearch(normalized);
       }
       setShowCamera(false);
     },
@@ -75,11 +77,15 @@ export default function PurchasesPage() {
 
   const handleUsbScan = useCallback(
     (barcode: string) => {
-      const product = activeProducts.find((p) => p.barcode === barcode);
+      const normalized = normalizeScannedDigits(barcode.trim());
+      const product = activeProducts.find((p) => productHasBarcode(p, normalized));
       if (product) {
         addItem(product);
+        // Auto-clear the field so the next barcode can be scanned immediately
+        setProductSearch("");
       } else {
-        setProductSearch(barcode);
+        // Product not found — show barcode in field for manual search
+        setProductSearch(normalized);
       }
     },
     [activeProducts, addItem]
@@ -288,12 +294,13 @@ export default function PurchasesPage() {
                     style={{ paddingRight: "2rem" }}
                     placeholder="ابحث أو امسح الباركود..."
                     value={productSearch}
-                    onChange={(e) => setProductSearch(e.target.value)}
+                    onChange={(e) => setProductSearch(normalizeDigits(e.target.value))}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
-                        const trimmed = productSearch.trim();
+                        // الباركود الممسوح قد يصل برموز لوحة المفاتيح الفرنسية → حوّله لأرقام
+                        const trimmed = normalizeScannedDigits(productSearch.trim());
                         if (trimmed) {
-                          const exactProduct = activeProducts.find((p) => p.barcode === trimmed);
+                          const exactProduct = activeProducts.find((p) => productHasBarcode(p, trimmed));
                           if (exactProduct) {
                             addItem(exactProduct);
                             e.preventDefault();

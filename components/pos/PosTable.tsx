@@ -1,17 +1,52 @@
 "use client";
+import { useState, useEffect, useRef } from "react";
 import { Minus, Plus, Trash2 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils/currency";
+import { normalizeDigits } from "@/lib/utils/barcode";
 import type { CartLine } from "@/hooks/usePosCart";
 
 interface Props {
   lines: CartLine[];
   mode: "cash" | "credit";
   onQty: (id: string, qty: number) => void;
+  onAmount: (id: string, amount: number) => void;
   onRemove: (id: string) => void;
+  // بعد إضافة منتج، يُركَّز تلقائياً على حقل المبلغ لهذا السطر.
+  // nonce يتغيّر مع كل إضافة حتى يُعاد التركيز حتى لو تكرّر نفس المنتج.
+  focusProductId?: string | null;
+  focusNonce?: number;
+  onAmountEnter?: () => void;
 }
 
-export default function PosTable({ lines, mode, onQty, onRemove }: Props) {
+export default function PosTable({ lines, mode, onQty, onAmount, onRemove, focusProductId, focusNonce, onAmountEnter }: Props) {
+  const amountRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // عند تغيّر المنتج المضاف (أو nonce) ركّز على حقل مبلغه وحدّد محتواه للكتابة فوقه.
+  useEffect(() => {
+    if (!focusProductId) return;
+    const el = amountRefs.current[focusProductId];
+    if (el) { el.focus(); el.select(); }
+  }, [focusProductId, focusNonce]);
+
   const unitPrice = (l: CartLine) => l.sellingPrice;
+
+  // إجمالي السطر: المبلغ المكتوب إن وُجد، وإلا السعر × الكمية.
+  const lineTotal = (l: CartLine) => (l.amount != null ? l.amount : unitPrice(l) * l.quantity);
+  // عرض الكمية بدون أصفار زائدة (حتى 6 خانات عشرية) لتفادي الأرقام الطويلة.
+  const fmtQty = (q: number) => (q === 0 ? "" : String(Number(q.toFixed(6))));
+
+  // While a numeric cell is being edited we keep the raw typed text so that
+  // Arabic-keyboard digits (٠١٢٣) and partial decimals ("1.") survive — a plain
+  // <input type="number"> silently rejects Arabic-Indic digits, which is why the
+  // amount/quantity fields couldn't be typed into with an Arabic layout.
+  const [editing, setEditing] = useState<{ id: string; field: "qty" | "amount"; value: string } | null>(null);
+
+  // Keep only Latin digits + a single decimal point.
+  const sanitizeNumeric = (raw: string) =>
+    normalizeDigits(raw).replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
+
+  const editValue = (id: string, field: "qty" | "amount", fallback: string | number) =>
+    editing && editing.id === id && editing.field === field ? editing.value : fallback;
 
   return (
     <div style={{ overflow: "auto", flex: 1 }}>
@@ -62,11 +97,15 @@ export default function PosTable({ lines, mode, onQty, onRemove }: Props) {
                     style={btnStyle}
                   ><Minus size={11} /></button>
                   <input
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={l.quantity === 0 ? "" : l.quantity}
-                    onChange={e => onQty(l.productId, Math.max(0, Number(e.target.value)))}
+                    type="text"
+                    inputMode="decimal"
+                    value={editValue(l.productId, "qty", fmtQty(l.quantity))}
+                    onChange={e => {
+                      const v = sanitizeNumeric(e.target.value);
+                      setEditing({ id: l.productId, field: "qty", value: v });
+                      onQty(l.productId, Math.max(0, Number(v) || 0));
+                    }}
+                    onBlur={() => setEditing(null)}
                     style={{
                       width: "60px", textAlign: "center", border: "1px solid #c5e5b8",
                       borderRadius: "0.375rem", padding: "0.2rem", fontSize: "0.85rem",
@@ -82,18 +121,26 @@ export default function PosTable({ lines, mode, onQty, onRemove }: Props) {
               <td style={{ padding: "0.6rem 0.5rem" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
                   <input
-                    type="number"
-                    min={0}
-                    value={Math.round(unitPrice(l) * l.quantity) || ""}
+                    ref={el => { amountRefs.current[l.productId] = el; }}
+                    type="text"
+                    inputMode="decimal"
+                    value={editValue(l.productId, "amount", Math.round(lineTotal(l)) || "")}
                     onChange={e => {
-                      const val = Number(e.target.value) || 0;
-                      const price = unitPrice(l);
-                      if (price > 0) {
-                        const calcQty = Number((val / price).toFixed(3));
-                        onQty(l.productId, calcQty);
+                      const v = sanitizeNumeric(e.target.value);
+                      setEditing({ id: l.productId, field: "amount", value: v });
+                      // المبلغ المكتوب يُسجَّل كإجمالي للسطر بالضبط (لا يُعاد حسابه).
+                      onAmount(l.productId, Number(v) || 0);
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        setEditing(null);
+                        (e.target as HTMLInputElement).blur();
+                        onAmountEnter?.();
                       }
                     }}
-                    placeholder="0"
+                    onBlur={() => setEditing(null)}
+                    placeholder="المبلغ"
                     style={{
                       width: "85px", border: "1px solid #c5e5b8",
                       borderRadius: "0.375rem", padding: "0.2rem 0.4rem", fontSize: "0.85rem",

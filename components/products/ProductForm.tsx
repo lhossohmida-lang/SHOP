@@ -3,8 +3,9 @@ import { useState, useCallback } from "react";
 import { PRODUCT_CATEGORIES } from "@/types/product";
 import type { ProductFormData, Product } from "@/types/product";
 import { formatCurrency } from "@/lib/utils/currency";
+import { normalizeScannedDigits } from "@/lib/utils/barcode";
 import BarcodeScanner from "@/components/pos/BarcodeScanner";
-import { Camera, X } from "lucide-react";
+import { Camera, X, Plus } from "lucide-react";
 
 // IMPORTANT: defined at MODULE level — never inside a component function
 // Defining components inside render functions causes React to remount them
@@ -28,7 +29,13 @@ interface ProductFormProps {
 export function ProductForm({ initial, onSave, onClose, saving }: ProductFormProps) {
   const [nameAr, setNameAr] = useState(initial?.nameAr ?? "");
   const [name, setName] = useState(initial?.name ?? "");
-  const [barcode, setBarcode] = useState(initial?.barcode ?? "");
+  const [barcodes, setBarcodes] = useState<string[]>(
+    initial?.barcodes && initial.barcodes.length
+      ? initial.barcodes
+      : initial?.barcode
+        ? [initial.barcode]
+        : [""]
+  );
   const [category, setCategory] = useState(initial?.category ?? "مواد غذائية");
   const [purchasePrice, setPurchasePrice] = useState<number | "">(initial?.purchasePrice ?? "");
   const [sellingPrice, setSellingPrice] = useState<number | "">(initial?.sellingPrice ?? "");
@@ -38,17 +45,41 @@ export function ProductForm({ initial, onSave, onClose, saving }: ProductFormPro
   const [isActive, setIsActive] = useState(initial?.isActive ?? true);
   const [expiryDate, setExpiryDate] = useState(initial?.expiryDate ?? "");
   const [showCamera, setShowCamera] = useState(false);
+  const [barcodeError, setBarcodeError] = useState(false);
 
+  const updateBarcode = (i: number, val: string) => {
+    if (val.trim()) setBarcodeError(false);
+    setBarcodes((prev) => prev.map((b, idx) => (idx === i ? normalizeScannedDigits(val) : b)));
+  };
+  const addBarcode = () => setBarcodes((prev) => [...prev, ""]);
+  const removeBarcode = (i: number) =>
+    setBarcodes((prev) => (prev.length <= 1 ? [""] : prev.filter((_, idx) => idx !== i)));
+
+  // المسح بالكاميرا: يملأ أول خانة فارغة أو يضيف خانة جديدة
   const handleBarcodeScanned = useCallback((code: string) => {
-    setBarcode(code);
+    const c = normalizeScannedDigits(code);
+    setBarcodeError(false);
+    setBarcodes((prev) => {
+      const emptyIdx = prev.findIndex((b) => !b.trim());
+      if (emptyIdx >= 0) return prev.map((b, idx) => (idx === emptyIdx ? c : b));
+      return [...prev, c];
+    });
     setShowCamera(false);
   }, []);
 
   const handleSubmit = async () => {
+    const cleanBarcodes = Array.from(
+      new Set(barcodes.map((b) => normalizeScannedDigits(b).trim()).filter(Boolean))
+    );
+    if (cleanBarcodes.length === 0) {
+      setBarcodeError(true);
+      return;
+    }
     await onSave({
       nameAr,
       name,
-      barcode,
+      barcode: cleanBarcodes[0] || "",
+      barcodes: cleanBarcodes,
       category,
       purchasePrice: Number(purchasePrice) || 0,
       sellingPrice: Number(sellingPrice) || 0,
@@ -106,30 +137,69 @@ export function ProductForm({ initial, onSave, onClose, saving }: ProductFormPro
               />
             </Field>
 
-            <Field label="الباركود / QR">
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <input
-                  className="input-field"
-                  value={barcode}
-                  onChange={(e) => setBarcode(e.target.value)}
-                  placeholder="اكتب أو امسح..."
-                  dir="ltr"
-                  style={{ textAlign: "left", flex: 1 }}
-                  autoComplete="off"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowCamera(true)}
-                  title="مسح بالكاميرا"
-                  style={{
-                    padding: "0 0.75rem", borderRadius: "0.5rem",
-                    border: "1px solid #c5e5b8", background: "#f1f8ee",
-                    cursor: "pointer", color: "#49a35c",
-                    display: "flex", alignItems: "center",
-                  }}
-                >
-                  <Camera size={18} />
-                </button>
+            <Field label="الباركود / QR *">
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                {barcodes.map((bc, i) => (
+                  <div key={i} style={{ display: "flex", gap: "0.5rem" }}>
+                    <input
+                      className="input-field"
+                      value={bc}
+                      onChange={(e) => updateBarcode(i, e.target.value)}
+                      placeholder={i === 0 ? "اكتب أو امسح الباركود الأساسي..." : "باركود إضافي..."}
+                      dir="ltr"
+                      style={{
+                        textAlign: "left", flex: 1,
+                        ...(barcodeError && i === 0 ? { borderColor: "#dc2626", boxShadow: "0 0 0 2px #fca5a560" } : {}),
+                      }}
+                      autoComplete="off"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeBarcode(i)}
+                      title="حذف هذا الباركود"
+                      style={{
+                        padding: "0 0.75rem", borderRadius: "0.5rem",
+                        border: "1px solid #fca5a5", background: "#fef2f2",
+                        cursor: "pointer", color: "#dc2626",
+                        display: "flex", alignItems: "center",
+                      }}
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                ))}
+                {barcodeError && (
+                  <p style={{ color: "#dc2626", fontSize: "0.82rem", margin: 0 }}>
+                    الباركود إلزامي — أدخل باركود واحد على الأقل
+                  </p>
+                )}
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button
+                    type="button"
+                    onClick={addBarcode}
+                    style={{
+                      flex: 1, padding: "0.4rem 0.75rem", borderRadius: "0.5rem",
+                      border: "1px dashed #49a35c", background: "#f1f8ee",
+                      cursor: "pointer", color: "#26683a", fontWeight: 600, fontSize: "0.8rem",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: "0.35rem",
+                    }}
+                  >
+                    <Plus size={16} /> إضافة باركود آخر
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowCamera(true)}
+                    title="مسح بالكاميرا"
+                    style={{
+                      padding: "0 0.75rem", borderRadius: "0.5rem",
+                      border: "1px solid #c5e5b8", background: "#f1f8ee",
+                      cursor: "pointer", color: "#49a35c",
+                      display: "flex", alignItems: "center",
+                    }}
+                  >
+                    <Camera size={18} />
+                  </button>
+                </div>
               </div>
             </Field>
 

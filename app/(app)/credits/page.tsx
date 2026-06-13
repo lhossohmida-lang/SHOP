@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useCredits } from "@/hooks/useCredits";
 import {
@@ -45,6 +45,14 @@ export default function CreditsPage() {
   const [detailCustomer, setDetailCustomer] = useState<CreditCustomer | null>(null);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   // New customer fields — individual state to avoid cursor reset
   const [newName, setNewName] = useState("");
@@ -352,7 +360,45 @@ export default function CreditsPage() {
           <p style={{ textAlign: "center", color: "#9ca3af", padding: "2rem" }}>
             {search ? "لا نتائج" : "لا يوجد عملاء. أضف عميلاً جديداً!"}
           </p>
-        ) : filtered.map((c) => (
+        ) : filtered.map((c) => isMobile ? (
+          /* ── Mobile: compact card — tap to open full detail ── */
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => openCustomerDetail(c)}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "0.875rem 1rem",
+              borderRadius: "0.75rem",
+              border: c.totalDebt > c.creditLimit ? "1px solid #fca5a5" : "1px solid #e5e7eb",
+              background: "white",
+              cursor: "pointer", textAlign: "right", width: "100%",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+              gap: "0.75rem",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flex: 1, minWidth: 0 }}>
+              <div style={{
+                width: "40px", height: "40px", borderRadius: "50%", flexShrink: 0,
+                background: "linear-gradient(135deg, #49a35c, #26683a)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: "white", fontWeight: 700, fontSize: "1rem",
+              }}>
+                {c.name.charAt(0)}
+              </div>
+              <div style={{ fontWeight: 600, color: "#17231c", fontSize: "0.95rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {c.name}
+              </div>
+            </div>
+            <div style={{ textAlign: "left", flexShrink: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: "1.05rem", color: c.totalDebt > 0 ? "#dc2626" : "#26683a" }}>
+                {formatCurrency(c.totalDebt)}
+              </div>
+              <div style={{ fontSize: "0.65rem", color: "#9ca3af" }}>اضغط للتفاصيل</div>
+            </div>
+          </button>
+        ) : (
+          /* ── Desktop: full card with all action buttons ── */
           <div key={c.id} className="card-sm" style={{ border: c.totalDebt > c.creditLimit ? "1px solid #fca5a5" : "1px solid #e5e7eb" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <button
@@ -381,12 +427,8 @@ export default function CreditsPage() {
                     </div>
                     {c.dueDate && (
                       <div style={{
-                        fontSize: "0.72rem",
-                        padding: "1px 6px",
-                        borderRadius: "4px",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "0.25rem",
+                        fontSize: "0.72rem", padding: "1px 6px", borderRadius: "4px",
+                        display: "flex", alignItems: "center", gap: "0.25rem",
                         background: new Date(c.dueDate) <= new Date() ? "#fef2f2" : "#f3f4f6",
                         color: new Date(c.dueDate) <= new Date() ? "#dc2626" : "#4b5563",
                         fontWeight: new Date(c.dueDate) <= new Date() ? 600 : 400,

@@ -29,7 +29,7 @@ export default function LoginPage() {
       } else if (msg.includes("user-not-found")) {
         setError("المستخدم غير موجود");
       } else {
-        setError("حدث خطأ. تحقق من اتصالك بالإنترنت.");
+        setError(`حدث خطأ. تحقق من اتصالك بالإنترنت. (${msg})`);
       }
     } finally {
       setLoading(false);

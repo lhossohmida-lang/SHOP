@@ -6,10 +6,32 @@ import { updateProduct } from "@/lib/firestore/products";
 import { getPosShortcuts, savePosShortcuts } from "@/lib/firestore/shortcuts";
 import { offlineAwareAwait } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
+import { productMatchesBarcodeSearch } from "@/lib/utils/barcode";
 import { Search, AlertTriangle, Edit2, Zap, X, Check, Printer } from "lucide-react";
 import type { Product } from "@/types/product";
 
-type StockModal = "out" | "low" | null;
+type StockModal = "out" | "low" | "expiry" | null;
+
+// المنتجات تُعتبر "قريبة من انتهاء الصلاحية" إذا بقي على انتهائها 30 يوماً أو أقل (يشمل المنتهية).
+const EXPIRY_SOON_DAYS = 30;
+
+function daysUntilExpiry(dateStr?: string): number | null {
+  if (!dateStr) return null;
+  const exp = new Date(dateStr);
+  if (isNaN(exp.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  exp.setHours(0, 0, 0, 0);
+  return Math.ceil((exp.getTime() - today.getTime()) / 86400000);
+}
+
+function expiryInfo(dateStr?: string): { label: string; color: string } {
+  const d = daysUntilExpiry(dateStr);
+  if (d === null) return { label: "—", color: "#6b7280" };
+  if (d < 0) return { label: `منتهية منذ ${Math.abs(d)} يوم`, color: "#dc2626" };
+  if (d === 0) return { label: "تنتهي اليوم", color: "#dc2626" };
+  return { label: `${d} يوم متبقّي`, color: d <= 7 ? "#dc2626" : "#d97706" };
+}
 
 export default function InventoryPage() {
   const { appUser } = useAuth();
@@ -36,7 +58,7 @@ export default function InventoryPage() {
   const categories = ["الكل", ...Array.from(new Set(products.map(p => p.category)))];
 
   const filtered = products.filter(p => {
-    const matchSearch = !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.nameAr.includes(search) || p.barcode.includes(search);
+    const matchSearch = !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.nameAr.includes(search) || productMatchesBarcodeSearch(p, search);
     const matchCat = category === "الكل" || p.category === category;
     const matchStock = stockFilter === "الكل" || (stockFilter === "نفد" && p.stock === 0) || (stockFilter === "قليل" && p.stock > 0 && p.stock <= p.minStock) || (stockFilter === "متوفر" && p.stock > p.minStock);
     return matchSearch && matchCat && matchStock;
@@ -45,6 +67,12 @@ export default function InventoryPage() {
   const totalValue = products.reduce((s, p) => s + p.stock * p.purchasePrice, 0);
   const outOfStock = products.filter(p => p.stock === 0);
   const lowStock = products.filter(p => p.stock > 0 && p.stock <= p.minStock);
+  const nearExpiry = products
+    .filter(p => {
+      const d = daysUntilExpiry(p.expiryDate);
+      return d !== null && d <= EXPIRY_SOON_DAYS;
+    })
+    .sort((a, b) => daysUntilExpiry(a.expiryDate)! - daysUntilExpiry(b.expiryDate)!);
 
   const saveStock = async (p: Product) => {
     if (!storeId) return;
@@ -108,15 +136,19 @@ export default function InventoryPage() {
 
   // Print stock list
   const handlePrintStockList = (type: StockModal) => {
-    const list = type === "out" ? outOfStock : lowStock;
-    const title = type === "out" ? "قائمة المنتجات النافدة من المخزون" : "قائمة المنتجات ذات المخزون القليل";
+    const list = type === "out" ? outOfStock : type === "low" ? lowStock : type === "expiry" ? nearExpiry : [];
+    const title = type === "out" ? "قائمة المنتجات النافدة من المخزون"
+      : type === "low" ? "قائمة المنتجات ذات المخزون القليل"
+      : "قائمة المنتجات قريبة انتهاء الصلاحية";
+    const isExpiry = type === "expiry";
+    const fifthHeader = isExpiry ? "تاريخ الانتهاء" : "الحد الأدنى";
     const rows = list.map(p => `
       <tr>
         <td>${p.nameAr || p.name}</td>
         <td>${p.barcode || "—"}</td>
         <td>${p.category}</td>
         <td>${p.stock} ${p.unit}</td>
-        <td>${p.minStock} ${p.unit}</td>
+        <td>${isExpiry ? `${p.expiryDate || "—"} (${expiryInfo(p.expiryDate).label})` : `${p.minStock} ${p.unit}`}</td>
         <td>${formatCurrency(p.purchasePrice)}</td>
       </tr>
     `).join("");
@@ -130,15 +162,32 @@ export default function InventoryPage() {
         th { background: #f1f8ee; padding: 8px; text-align: right; border: 1px solid #c5e5b8; font-size: 12px; }
         td { padding: 7px 8px; border: 1px solid #e5e7eb; font-size: 12px; }
         tr:nth-child(even) { background: #f9fafb; }
-        @media print { body { padding: 0; } }
+        #print-back-btn {
+          position: fixed; top: 10px; left: 10px; z-index: 9999;
+          padding: 8px 18px; background: #26683a; color: white;
+          border: none; border-radius: 8px; font-size: 14px;
+          font-family: Arial, sans-serif; cursor: pointer; font-weight: bold;
+        }
+        @media print { body { padding: 0; } #print-back-btn { display: none !important; } }
       </style>
       </head><body>
+      <button id="print-back-btn" onclick="try{window.close();}catch(e){history.back();}">&#x2190; رجوع</button>
       <h1>${title}</h1>
       <p class="sub">تاريخ الطباعة: ${new Date().toLocaleDateString("ar-DZ")} — الإجمالي: ${list.length} منتج</p>
       <table>
-        <thead><tr><th>المنتج</th><th>الباركود</th><th>الفئة</th><th>المخزون الحالي</th><th>الحد الأدنى</th><th>سعر الشراء</th></tr></thead>
+        <thead><tr><th>المنتج</th><th>الباركود</th><th>الفئة</th><th>المخزون الحالي</th><th>${fifthHeader}</th><th>سعر الشراء</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
+      <script>
+        window.onload = function() {
+          window.focus();
+          window.onafterprint = function() { try { window.close(); } catch(e) {} };
+          setTimeout(function() {
+            window.print();
+            setTimeout(function() { try { window.close(); } catch(e) {} }, 2000);
+          }, 200);
+        };
+      </script>
       </body></html>
     `;
     const win = window.open("", "_blank");
@@ -149,10 +198,10 @@ export default function InventoryPage() {
     }
   };
 
-  const modalProducts = stockModal === "out" ? outOfStock : stockModal === "low" ? lowStock : [];
-  const modalTitle = stockModal === "out" ? "🔴 المنتجات النافدة من المخزون" : "🟠 المنتجات ذات المخزون القليل";
-  const modalColor = stockModal === "out" ? "#dc2626" : "#f97316";
-  const modalBg = stockModal === "out" ? "#fff5f5" : "#fff7ed";
+  const modalProducts = stockModal === "out" ? outOfStock : stockModal === "low" ? lowStock : stockModal === "expiry" ? nearExpiry : [];
+  const modalTitle = stockModal === "out" ? "🔴 المنتجات النافدة من المخزون" : stockModal === "low" ? "🟠 المنتجات ذات المخزون القليل" : "🔵 منتجات قريبة من انتهاء الصلاحية";
+  const modalColor = stockModal === "out" ? "#dc2626" : stockModal === "low" ? "#f97316" : "#3b82f6";
+  const modalBg = stockModal === "out" ? "#fff5f5" : stockModal === "low" ? "#fff7ed" : "#eff6ff";
 
   return (
     <div className="animate-fade-in">
@@ -226,6 +275,24 @@ export default function InventoryPage() {
             <span style={{ fontSize: "0.65rem", color: "#f97316", fontWeight: 600 }}>↗ عرض</span>
           </div>
           <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#f97316" }}>{lowStock.length}</div>
+        </button>
+        {/* Near expiry — CLICKABLE (blue) */}
+        <button
+          onClick={() => setStockModal("expiry")}
+          className="card-sm"
+          style={{
+            border: "1px solid #93c5fd", background: "#eff6ff", cursor: "pointer",
+            textAlign: "right", transition: "all 0.15s", outline: "none",
+          }}
+          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(59,130,246,0.2)"; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}
+          title="انقر لعرض المنتجات قريبة انتهاء الصلاحية"
+        >
+          <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+            <span>قرب انتهاء الصلاحية</span>
+            <span style={{ fontSize: "0.65rem", color: "#3b82f6", fontWeight: 600 }}>↗ عرض</span>
+          </div>
+          <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#3b82f6" }}>{nearExpiry.length}</div>
         </button>
       </div>
 
@@ -310,6 +377,7 @@ export default function InventoryPage() {
                 <p style={{ fontSize: "0.8rem", color: "#6b7280", marginTop: "0.25rem" }}>
                   الإجمالي: <strong>{modalProducts.length}</strong> منتج
                   {stockModal === "low" && " — المخزون أقل من أو يساوي الحد الأدنى"}
+                  {stockModal === "expiry" && ` — تنتهي صلاحيتها خلال ${EXPIRY_SOON_DAYS} يوماً أو أقل`}
                 </p>
               </div>
               <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -345,7 +413,7 @@ export default function InventoryPage() {
                       <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: modalColor, fontSize: "0.78rem" }}>المنتج</th>
                       <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: modalColor, fontSize: "0.78rem" }}>الفئة</th>
                       <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: modalColor, fontSize: "0.78rem" }}>المخزون</th>
-                      <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: modalColor, fontSize: "0.78rem" }}>الحد الأدنى</th>
+                      <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: modalColor, fontSize: "0.78rem" }}>{stockModal === "expiry" ? "تاريخ الانتهاء" : "الحد الأدنى"}</th>
                       <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: modalColor, fontSize: "0.78rem" }}>سعر الشراء</th>
                       <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: modalColor, fontSize: "0.78rem" }}>تعديل المخزون</th>
                     </tr>
@@ -365,7 +433,16 @@ export default function InventoryPage() {
                             {p.stock} {p.unit}
                           </span>
                         </td>
-                        <td style={{ padding: "0.6rem 0.75rem", color: "#6b7280" }}>{p.minStock} {p.unit}</td>
+                        <td style={{ padding: "0.6rem 0.75rem", color: "#6b7280" }}>
+                          {stockModal === "expiry" ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                              <span style={{ fontWeight: 600, color: expiryInfo(p.expiryDate).color }}>{expiryInfo(p.expiryDate).label}</span>
+                              <span style={{ fontSize: "0.7rem", color: "#9ca3af" }}>{p.expiryDate || "—"}</span>
+                            </div>
+                          ) : (
+                            `${p.minStock} ${p.unit}`
+                          )}
+                        </td>
                         <td style={{ padding: "0.6rem 0.75rem", color: "#6b7280" }}>{formatCurrency(p.purchasePrice)}</td>
                         <td style={{ padding: "0.6rem 0.75rem" }}>
                           {modalEditingId === p.id ? (

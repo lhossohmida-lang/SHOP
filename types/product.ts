@@ -4,7 +4,8 @@ export interface Product {
   id: string;
   name: string;
   nameAr: string;
-  barcode: string;
+  barcode: string; // الباركود الأساسي (للطباعة والعرض) = barcodes[0]
+  barcodes?: string[]; // كل الباركودات التي تخص المنتج (يطابقها المسح كلها)
   category: string;
   purchasePrice: number;
   sellingPrice: number;
@@ -23,6 +24,7 @@ export interface ProductFormData {
   name: string;
   nameAr: string;
   barcode: string;
+  barcodes: string[];
   category: string;
   purchasePrice: number;
   sellingPrice: number;

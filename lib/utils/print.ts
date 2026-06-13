@@ -12,6 +12,65 @@ const RECEIPT_WINDOW = { width: 333, height: 378 };
 const LABEL_PAGE = "40mm 20mm";
 const LABEL_WINDOW = { width: 151, height: 76 };
 
+/** True on Capacitor native or any mobile browser/WebView. */
+function isMobileWebView(): boolean {
+  if (typeof window === "undefined") return false;
+  if ((window as any).Capacitor) return true;
+  return /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
+/** Inject the auto-print + "back" button behaviour right before </body>. */
+function injectPrintScript(html: string): string {
+  return html.replace("</body>", `${printScript()}</body>`);
+}
+
+/**
+ * Mobile printing: render the document inside a hidden iframe in the CURRENT page
+ * and trigger printing from there. Nothing navigates away, so there is no separate
+ * window/page to get stuck on — dismissing the system print dialog returns straight
+ * to the app (fixes the dead "back" button on phones).
+ */
+function printViaIframe(html: string): void {
+  document.getElementById("__print_iframe__")?.remove();
+
+  const iframe = document.createElement("iframe");
+  iframe.id = "__print_iframe__";
+  iframe.setAttribute("aria-hidden", "true");
+  Object.assign(iframe.style, {
+    position: "fixed", right: "0", bottom: "0",
+    width: "0", height: "0", border: "0", visibility: "hidden",
+  } as CSSStyleDeclaration);
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentWindow?.document;
+  if (!doc) { iframe.remove(); return; }
+  doc.open();
+  doc.write(html);
+  doc.close();
+
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    setTimeout(() => iframe.remove(), 500);
+  };
+
+  const win = iframe.contentWindow!;
+  win.onafterprint = cleanup;
+
+  // Wait for layout/fonts to settle, then print from inside the iframe.
+  setTimeout(() => {
+    try {
+      win.focus();
+      win.print();
+    } catch (err) {
+      console.error("Failed to print:", err);
+    }
+    // Fallback cleanup in case onafterprint never fires on some WebViews.
+    setTimeout(cleanup, 3000);
+  }, 350);
+}
+
 async function executePrint(
   html: string,
   width = RECEIPT_WINDOW.width,
@@ -26,7 +85,7 @@ async function executePrint(
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ html }),
+        body: JSON.stringify({ html: injectPrintScript(html) }),
       });
       if (response.ok) {
         const { id } = await response.json();
@@ -39,25 +98,56 @@ async function executePrint(
     }
   }
 
+  // On phones a separate print window can't be closed/navigated back from — print
+  // inside a hidden iframe in the current page instead.
+  if (isMobileWebView()) {
+    printViaIframe(html);
+    return;
+  }
+
   const win = window.open("", "_blank", `width=${width},height=${height}`);
   if (win) {
-    win.document.write(html);
+    win.document.write(injectPrintScript(html));
     win.document.close();
   }
 }
 
 function printScript(): string {
   return `
+  <style>
+    #print-back-btn {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 9999;
+      padding: 8px 18px;
+      background: #26683a;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: Tahoma, Arial, sans-serif;
+      cursor: pointer;
+      font-weight: bold;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    @media print {
+      #print-back-btn { display: none !important; }
+    }
+  </style>
+  <button id="print-back-btn" onclick="try{window.close();}catch(e){history.back();}">
+    &#x2190; رجوع
+  </button>
   <script>
     window.onload = function() {
       window.focus();
       window.onafterprint = function() {
-        window.close();
+        try { window.close(); } catch(e) {}
       };
       setTimeout(function() {
         window.print();
         setTimeout(function() {
-          window.close();
+          try { window.close(); } catch(e) {}
         }, 2000);
       }, 200);
     };
@@ -118,7 +208,6 @@ export function printProductLabel(
 <body>
   <div class="name">${productName}</div>
   <div class="price">${formatCurrency(sellingPrice)}</div>
-  ${printScript()}
 </body>
 </html>`;
 
@@ -192,7 +281,7 @@ export function printProductLabelsBatch(
   <title>طباعة ${products.length} بطاقة</title>
   <style>${labelPageStyles}</style>
 </head>
-<body>${pages}${printScript()}</body>
+<body>${pages}</body>
 </html>`;
 
   executePrint(html, LABEL_WINDOW.width, LABEL_WINDOW.height);
@@ -269,7 +358,6 @@ export function printReceipt(sale: Sale, storeName = STORE_NAME): void {
     <tr class="total-row"><td>الإجمالي</td><td style="text-align:left;">${formatCurrency(sale.total)}</td></tr>
   </table>
   <div class="footer">شكراً لزيارتكم! • ${storeName}</div>
-  ${printScript()}
 </body>
 </html>`;
 
@@ -385,7 +473,6 @@ export function printCustomerStatement(
   </table>
 
   <div class="footer">تم إنشاء هذا التقرير بواسطة ${storeName}</div>
-  ${printScript()}
 </body>
 </html>`;
 

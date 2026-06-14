@@ -51,8 +51,10 @@ export default function PosPage() {
 
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // المنتج الذي يجب تركيز حقل مبلغه بعد الإضافة (nonce يتغيّر مع كل إضافة لإعادة التركيز).
+  // المنتج الذي يجب تركيز حقله بعد الإضافة (nonce يتغيّر مع كل إضافة لإعادة التركيز).
   const [amountFocus, setAmountFocus] = useState<{ id: string; nonce: number }>({ id: "", nonce: 0 });
+  // الاقتراح المحدَّد في قائمة البحث (للتنقّل بأسهم لوحة المفاتيح).
+  const [selIdx, setSelIdx] = useState(0);
 
   const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
@@ -249,10 +251,13 @@ export default function PosPage() {
     await handleConfirm(true);
   }, [handleConfirm]);
 
-  // F10 → confirm current sale (placed AFTER handleConfirm is defined)
+  // F9 → confirm + print, F10 → confirm without print (after handleConfirm is defined)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "F10") {
+      if (e.key === "F9") {
+        e.preventDefault();
+        handleConfirm(true); // تأكيد الطلبية مع الطباعة
+      } else if (e.key === "F10") {
         e.preventDefault();
         handleConfirm(false); // تأكيد الطلبية دون أي طباعة
       }
@@ -340,9 +345,21 @@ export default function PosPage() {
             placeholder="ابحث بالاسم أو الباركود، أو امسح مباشرة..."
             value={search}
             autoComplete="off"
-            onChange={e => { setSearch(normalizeDigits(e.target.value)); setShowDropdown(true); }}
+            onChange={e => { setSearch(normalizeDigits(e.target.value)); setShowDropdown(true); setSelIdx(0); }}
             onFocus={() => setShowDropdown(true)}
             onKeyDown={e => {
+              // تنقّل بين الاقتراحات بأسهم لوحة المفاتيح
+              if (e.key === "ArrowDown" && suggestions.length > 0) {
+                e.preventDefault();
+                setShowDropdown(true);
+                setSelIdx(i => Math.min(i + 1, suggestions.length - 1));
+                return;
+              }
+              if (e.key === "ArrowUp" && suggestions.length > 0) {
+                e.preventDefault();
+                setSelIdx(i => Math.max(i - 1, 0));
+                return;
+              }
               if (e.key === "Enter") {
                 // الباركود الممسوح قد يصل برموز لوحة المفاتيح الفرنسية → حوّله لأرقام
                 const trimmed = normalizeScannedDigits(search.trim());
@@ -358,9 +375,11 @@ export default function PosPage() {
                   }
                 }
                 if (suggestions.length > 0) {
-                  if (tryAddProduct(suggestions[0])) {
+                  const chosen = suggestions[Math.min(selIdx, suggestions.length - 1)];
+                  if (tryAddProduct(chosen)) {
                     setSearch("");
                     setShowDropdown(false);
+                    setSelIdx(0);
                   }
                   e.preventDefault();
                 }
@@ -381,15 +400,16 @@ export default function PosPage() {
               background: "white", border: "1px solid #e5e7eb", borderRadius: "0.625rem",
               boxShadow: "0 8px 24px rgba(0,0,0,0.1)", marginTop: "4px", maxHeight: "220px", overflowY: "auto"
             }}>
-              {suggestions.map(p => (
-                <button key={p.id} onMouseDown={() => { if (tryAddProduct(p)) { setSearch(""); setShowDropdown(false); } }}
+              {suggestions.map((p, i) => (
+                <button key={p.id} onMouseDown={() => { if (tryAddProduct(p)) { setSearch(""); setShowDropdown(false); setSelIdx(0); } }}
+                  onMouseEnter={() => setSelIdx(i)}
                   style={{
-                    width: "100%", padding: "0.6rem 0.875rem", background: "none", border: "none",
+                    width: "100%", padding: "0.6rem 0.875rem",
+                    background: i === Math.min(selIdx, suggestions.length - 1) ? "#eaf6e3" : "none",
+                    border: "none", borderRight: i === Math.min(selIdx, suggestions.length - 1) ? "3px solid #49a35c" : "3px solid transparent",
                     textAlign: "right", cursor: "pointer", display: "flex", justifyContent: "space-between",
                     alignItems: "center", borderBottom: "1px solid #f3f4f6", fontSize: "0.875rem",
                   }}
-                  onMouseEnter={e => (e.currentTarget.style.background = "#f8fdf5")}
-                  onMouseLeave={e => (e.currentTarget.style.background = "")}
                 >
                   <div>
                     <div style={{ fontWeight: 600, color: "#17231c" }}>{p.nameAr || p.name}</div>
@@ -481,7 +501,7 @@ export default function PosPage() {
               onRemove={cart.removeLine}
               focusProductId={amountFocus.id}
               focusNonce={amountFocus.nonce}
-              onAmountEnter={() => searchRef.current?.focus()}
+              onReturnToSearch={() => searchRef.current?.focus()}
             />
 
             {/* Mobile-only go to checkout sticky button */}

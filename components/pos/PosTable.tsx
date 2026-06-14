@@ -11,21 +11,29 @@ interface Props {
   onQty: (id: string, qty: number) => void;
   onAmount: (id: string, amount: number) => void;
   onRemove: (id: string) => void;
-  // بعد إضافة منتج، يُركَّز تلقائياً على حقل المبلغ لهذا السطر.
+  // بعد إضافة منتج يُركَّز تلقائياً على حقل الكمية (غير الموزون) أو المبلغ (الموزون).
   // nonce يتغيّر مع كل إضافة حتى يُعاد التركيز حتى لو تكرّر نفس المنتج.
   focusProductId?: string | null;
   focusNonce?: number;
-  onAmountEnter?: () => void;
+  // الضغط على Enter داخل خانة الكمية/المبلغ يعيد التركيز لخانة البحث.
+  onReturnToSearch?: () => void;
 }
 
-export default function PosTable({ lines, mode, onQty, onAmount, onRemove, focusProductId, focusNonce, onAmountEnter }: Props) {
+// المواد التي تُباع بالميزان (وزن/حجم) → التركيز على المبلغ؛ غيرها (قطعة/علبة) → على الكمية.
+const isWeighed = (u: CartLine["unit"]) => u === "kg" || u === "g" || u === "l" || u === "ml";
+
+export default function PosTable({ lines, mode, onQty, onAmount, onRemove, focusProductId, focusNonce, onReturnToSearch }: Props) {
+  const qtyRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const amountRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // عند تغيّر المنتج المضاف (أو nonce) ركّز على حقل مبلغه وحدّد محتواه للكتابة فوقه.
+  // بعد الإضافة: ركّز على الكمية (غير الموزون) أو المبلغ (الموزون) وحدّد محتواه للكتابة فوقه.
   useEffect(() => {
     if (!focusProductId) return;
-    const el = amountRefs.current[focusProductId];
+    const line = lines.find(l => l.productId === focusProductId);
+    const refs = line && isWeighed(line.unit) ? amountRefs : qtyRefs;
+    const el = refs.current[focusProductId];
     if (el) { el.focus(); el.select(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusProductId, focusNonce]);
 
   const unitPrice = (l: CartLine) => l.sellingPrice;
@@ -47,6 +55,34 @@ export default function PosTable({ lines, mode, onQty, onAmount, onRemove, focus
 
   const editValue = (id: string, field: "qty" | "amount", fallback: string | number) =>
     editing && editing.id === id && editing.field === field ? editing.value : fallback;
+
+  // تركيز سطر بالفهرس؛ قبل الأول → العودة لخانة البحث، بعد الأخير → البقاء.
+  const focusLine = (index: number) => {
+    if (index < 0) { onReturnToSearch?.(); return; }
+    if (index >= lines.length) return;
+    const l = lines[index];
+    const refs = isWeighed(l.unit) ? amountRefs : qtyRefs;
+    (refs.current[l.productId] ?? qtyRefs.current[l.productId])?.focus();
+  };
+
+  // لوحة المفاتيح داخل خانة الكمية/المبلغ: Enter→بحث، أسهم→تنقّل، +/-→كمية.
+  const onCellKeyDown = (e: React.KeyboardEvent, index: number) => {
+    const l = lines[index];
+    if (!l) return;
+    if (e.key === "Enter") { e.preventDefault(); setEditing(null); onReturnToSearch?.(); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); focusLine(index + 1); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); focusLine(index - 1); return; }
+    if (e.key === "+" || e.key === "=") {
+      e.preventDefault(); setEditing(null);
+      onQty(l.productId, Number((l.quantity + 1).toFixed(3)));
+      return;
+    }
+    if (e.key === "-") {
+      e.preventDefault(); setEditing(null);
+      onQty(l.productId, Math.max(0, Number((l.quantity - 1).toFixed(3))));
+      return;
+    }
+  };
 
   return (
     <div style={{ overflow: "auto", flex: 1 }}>
@@ -97,6 +133,7 @@ export default function PosTable({ lines, mode, onQty, onAmount, onRemove, focus
                     style={btnStyle}
                   ><Minus size={11} /></button>
                   <input
+                    ref={el => { qtyRefs.current[l.productId] = el; }}
                     type="text"
                     inputMode="decimal"
                     value={editValue(l.productId, "qty", fmtQty(l.quantity))}
@@ -105,6 +142,7 @@ export default function PosTable({ lines, mode, onQty, onAmount, onRemove, focus
                       setEditing({ id: l.productId, field: "qty", value: v });
                       onQty(l.productId, Math.max(0, Number(v) || 0));
                     }}
+                    onKeyDown={e => onCellKeyDown(e, idx)}
                     onBlur={() => setEditing(null)}
                     style={{
                       width: "60px", textAlign: "center", border: "1px solid #c5e5b8",
@@ -131,14 +169,7 @@ export default function PosTable({ lines, mode, onQty, onAmount, onRemove, focus
                       // المبلغ المكتوب يُسجَّل كإجمالي للسطر بالضبط (لا يُعاد حسابه).
                       onAmount(l.productId, Number(v) || 0);
                     }}
-                    onKeyDown={e => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        setEditing(null);
-                        (e.target as HTMLInputElement).blur();
-                        onAmountEnter?.();
-                      }
-                    }}
+                    onKeyDown={e => onCellKeyDown(e, idx)}
                     onBlur={() => setEditing(null)}
                     placeholder="المبلغ"
                     style={{

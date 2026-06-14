@@ -8,6 +8,7 @@ export interface CartLine {
   barcode: string;
   purchasePrice: number;
   sellingPrice: number;
+  unit: Product["unit"];
   quantity: number;
   // عند البيع بالمبلغ: هذا هو إجمالي السطر بالضبط (لا يُعاد حسابه من السعر×الكمية
   // حتى لا يتغيّر المبلغ الذي كتبه المستخدم بسبب التقريب).
@@ -39,6 +40,7 @@ export function usePosCart() {
         barcode: p.barcode || "",
         purchasePrice: p.purchasePrice,
         sellingPrice: p.sellingPrice,
+        unit: p.unit,
         quantity: 1,
       }];
     });

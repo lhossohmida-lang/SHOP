@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { useUsbScanner } from "@/hooks/useUsbScanner";
@@ -9,8 +9,9 @@ import { formatCurrency } from "@/lib/utils/currency";
 import { normalizeDigits, normalizeScannedDigits, productHasBarcode, productMatchesBarcodeSearch } from "@/lib/utils/barcode";
 import { printProductLabel, printProductLabelsBatch } from "@/lib/utils/print";
 import { ProductForm } from "@/components/products/ProductForm";
+import QuickEditPanel from "@/components/products/QuickEditPanel";
 import type { ProductFormData, Product } from "@/types/product";
-import { Plus, Search, Edit2, Trash2, Package, Printer, CheckSquare, Square, X } from "lucide-react";
+import { Plus, Search, Edit2, Trash2, Package, Printer, CheckSquare, Square, X, Check } from "lucide-react";
 
 function getDuplicateProductError(
   products: Product[],
@@ -51,8 +52,30 @@ export default function ProductsPage() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [toast, setToast] = useState("");
+  // لوحة "منتجات محدّدة للتعديل": معرّفات المنتجات المضافة + إظهار قائمة نتائج البحث.
+  const [editIds, setEditIds] = useState<string[]>([]);
+  const [showEditDropdown, setShowEditDropdown] = useState(false);
 
   const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
+
+  // أعد التركيز على خانة البحث عند إغلاق النموذج، وإلا يلتقط قارئ USB الكتابة فلا
+  // يمكن الكتابة في خانة البحث (مثلاً بعد رسالة "المنتج موجود أصلاً").
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!showForm) searchRef.current?.focus();
+  }, [showForm]);
+
+  // المنتجات المحدَّدة للتعديل (بترتيب الإضافة) + إضافة/إزالة + حفظ سريع للسعر والمخزون.
+  const editProducts = useMemo(
+    () => editIds.map((id) => products.find((p) => p.id === id)).filter((p): p is Product => !!p),
+    [editIds, products]
+  );
+  const toggleEdit = (id: string) =>
+    setEditIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const handleQuickSave = async (id: string, data: { sellingPrice: number; stock: number }) => {
+    if (!storeId) return;
+    await offlineAwareAwait(updateProduct(storeId, id, data));
+  };
 
   // امسح خانة البحث بعد التعرّف على الباركود حتى يمكن تسجيل باركود جديد
   // (نفس سلوك خانة البيع). يبقى المبلغ المكتوب إذا لم يُعثر على المنتج للبحث اليدوي.
@@ -264,13 +287,16 @@ export default function ProductsPage() {
           style={{ position: "absolute", right: "0.75rem", top: "50%", transform: "translateY(-50%)", color: "#9ca3af" }}
         />
         <input
+          ref={searchRef}
           className="input-field"
           style={{ paddingRight: "2.5rem" }}
           placeholder="بحث بالاسم أو الباركود، أو امسح مباشرة..."
           value={search}
           autoFocus
           autoComplete="off"
-          onChange={(e) => setSearch(normalizeDigits(e.target.value))}
+          onFocus={() => setShowEditDropdown(true)}
+          onBlur={() => setTimeout(() => setShowEditDropdown(false), 150)}
+          onChange={(e) => { setSearch(normalizeDigits(e.target.value)); setShowEditDropdown(true); }}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               // حوّل رموز لوحة المفاتيح الفرنسية/العربية إلى أرقام لاكتشاف الباركود الممسوح
@@ -283,7 +309,47 @@ export default function ProductsPage() {
             }
           }}
         />
+        {/* قائمة نتائج البحث: انقر منتجاً لإضافته/إزالته من لوحة التعديل */}
+        {search.trim() && showEditDropdown && filtered.length > 0 && (
+          <div style={{
+            position: "absolute", top: "100%", right: 0, left: 0, zIndex: 50,
+            background: "white", border: "1px solid #e5e7eb", borderRadius: "0.625rem",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.1)", marginTop: "4px", maxHeight: "260px", overflowY: "auto",
+          }}>
+            {filtered.slice(0, 10).map((p) => {
+              const added = editIds.includes(p.id);
+              return (
+                <button
+                  key={p.id}
+                  onMouseDown={(e) => { e.preventDefault(); toggleEdit(p.id); }}
+                  style={{
+                    width: "100%", padding: "0.55rem 0.875rem", background: added ? "#f1f8ee" : "none",
+                    border: "none", borderBottom: "1px solid #f3f4f6", textAlign: "right", cursor: "pointer",
+                    display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.85rem",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
+                    <span style={{
+                      width: "20px", height: "20px", borderRadius: "5px", flexShrink: 0,
+                      border: added ? "none" : "1px solid #c5e5b8", background: added ? "#26683a" : "white",
+                      color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.7rem",
+                    }}>{added ? <Check size={13} /> : <Plus size={13} color="#49a35c" />}</span>
+                    <span style={{ fontWeight: 600, color: "#17231c", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.nameAr || p.name}</span>
+                  </div>
+                  <span style={{ color: "#26683a", fontWeight: 700, whiteSpace: "nowrap" }}>{formatCurrency(p.sellingPrice)}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
+
+      <QuickEditPanel
+        products={editProducts}
+        onRemove={(id) => setEditIds((prev) => prev.filter((x) => x !== id))}
+        onClear={() => setEditIds([])}
+        onSave={handleQuickSave}
+      />
 
       <div className="table-container">
         <table>

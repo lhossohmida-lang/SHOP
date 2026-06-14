@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { useSales } from "@/hooks/useSales";
@@ -42,50 +42,64 @@ export default function DashboardPage() {
       });
   }, [storeId]);
 
-  const calculateProfit = useCallback((salesList: Sale[]) => {
-    return salesList.reduce((sum, s) => {
-      const cost = s.items.reduce((c, item) => {
-        const p = products.find(prod => prod.id === item.productId);
-        return c + (p?.purchasePrice || 0) * item.quantity;
-      }, 0);
-      return sum + s.total - cost;
-    }, 0);
+  // خريطة سعر الشراء حسب المعرّف لتفادي products.find داخل الحلقات (أداء أسرع بكثير).
+  const purchasePriceById = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of products) m.set(p.id, p.purchasePrice);
+    return m;
   }, [products]);
 
+  const calculateProfit = useCallback((salesList: Sale[]) => {
+    return salesList.reduce((sum, s) => {
+      const cost = s.items.reduce(
+        (c, item) => c + (purchasePriceById.get(item.productId) || 0) * item.quantity,
+        0
+      );
+      return sum + s.total - cost;
+    }, 0);
+  }, [purchasePriceById]);
+
   // Today profit and sales total from the 30-day list (covers all sales today, not just last 10)
-  const todaySales = thirtyDaysSales.filter(s => new Date(s.createdAt).toDateString() === new Date().toDateString());
-  const todayTotal = todaySales.reduce((sum, s) => sum + s.total, 0);
-  const todayProfit = calculateProfit(todaySales);
+  const todayStr = new Date().toDateString();
+  const todaySales = useMemo(
+    () => thirtyDaysSales.filter(s => new Date(s.createdAt).toDateString() === todayStr),
+    [thirtyDaysSales, todayStr]
+  );
+  const todayTotal = useMemo(() => todaySales.reduce((sum, s) => sum + s.total, 0), [todaySales]);
+  const todayProfit = useMemo(() => calculateProfit(todaySales), [calculateProfit, todaySales]);
 
   // Weekly profit (last 7 days)
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  sevenDaysAgo.setHours(0, 0, 0, 0);
-  const weeklySales = thirtyDaysSales.filter(s => new Date(s.createdAt) >= sevenDaysAgo);
-  const weeklyProfit = calculateProfit(weeklySales);
+  const weeklyProfit = useMemo(() => {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+    return calculateProfit(thirtyDaysSales.filter(s => new Date(s.createdAt) >= sevenDaysAgo));
+  }, [calculateProfit, thirtyDaysSales]);
 
   // Monthly profit (last 30 days)
-  const monthlyProfit = calculateProfit(thirtyDaysSales);
+  const monthlyProfit = useMemo(() => calculateProfit(thirtyDaysSales), [calculateProfit, thirtyDaysSales]);
 
-  // Top 5 products
-  const productSales: Record<string, { name: string; qty: number; revenue: number }> = {};
-  sales.forEach(s => s.items.forEach(item => {
-    if (!productSales[item.productId]) productSales[item.productId] = { name: item.productName, qty: 0, revenue: 0 };
-    productSales[item.productId].qty += item.quantity;
-    productSales[item.productId].revenue += item.totalPrice;
-  }));
-  const topProducts = Object.entries(productSales).sort((a, b) => b[1].qty - a[1].qty).slice(0, 5);
+  // Top 5 products (from the recent sales list)
+  const topProducts = useMemo(() => {
+    const productSales: Record<string, { name: string; qty: number; revenue: number }> = {};
+    sales.forEach(s => s.items.forEach(item => {
+      if (!productSales[item.productId]) productSales[item.productId] = { name: item.productName, qty: 0, revenue: 0 };
+      productSales[item.productId].qty += item.quantity;
+      productSales[item.productId].revenue += item.totalPrice;
+    }));
+    return Object.entries(productSales).sort((a, b) => b[1].qty - a[1].qty).slice(0, 5);
+  }, [sales]);
 
   // Last 7 days bar chart (using the 30-day full list for correctness)
-  const last7 = Array.from({ length: 7 }, (_, i) => {
+  const last7 = useMemo(() => Array.from({ length: 7 }, (_, i) => {
     const d = new Date(); d.setDate(d.getDate() - (6 - i));
     const dayStr = d.toDateString();
     return {
       label: d.toLocaleDateString("ar", { weekday: "short" }),
       total: thirtyDaysSales.filter(s => new Date(s.createdAt).toDateString() === dayStr).reduce((sum, s) => sum + s.total, 0),
     };
-  });
-  const maxVal = Math.max(...last7.map(d => d.total), 1);
+  }), [thirtyDaysSales]);
+  const maxVal = useMemo(() => Math.max(...last7.map(d => d.total), 1), [last7]);
 
   return (
     <PasswordGate>

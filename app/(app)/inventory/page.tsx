@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { updateProduct } from "@/lib/firestore/products";
@@ -7,7 +7,8 @@ import { getPosShortcuts, savePosShortcuts } from "@/lib/firestore/shortcuts";
 import { offlineAwareAwait } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
 import { productMatchesBarcodeSearch } from "@/lib/utils/barcode";
-import { Search, AlertTriangle, Edit2, Zap, X, Check, Printer } from "lucide-react";
+import { Search, AlertTriangle, Edit2, Zap, X, Check, Printer, Plus } from "lucide-react";
+import QuickEditPanel from "@/components/products/QuickEditPanel";
 import type { Product } from "@/types/product";
 
 type StockModal = "out" | "low" | "expiry" | null;
@@ -42,6 +43,9 @@ export default function InventoryPage() {
   const [stockFilter, setStockFilter] = useState("الكل");
   const [editingStock, setEditingStock] = useState<string | null>(null);
   const [newStock, setNewStock] = useState<number>(0);
+  // لوحة "منتجات محدّدة للتعديل"
+  const [editIds, setEditIds] = useState<string[]>([]);
+  const [showEditDropdown, setShowEditDropdown] = useState(false);
 
   // Stock modal (out / low)
   const [stockModal, setStockModal] = useState<StockModal>(null);
@@ -63,6 +67,18 @@ export default function InventoryPage() {
     const matchStock = stockFilter === "الكل" || (stockFilter === "نفد" && p.stock === 0) || (stockFilter === "قليل" && p.stock > 0 && p.stock <= p.minStock) || (stockFilter === "متوفر" && p.stock > p.minStock);
     return matchSearch && matchCat && matchStock;
   });
+
+  // لوحة التعديل السريع: المنتجات المحدَّدة + إضافة/إزالة + حفظ السعر والمخزون.
+  const editProducts = useMemo(
+    () => editIds.map((id) => products.find((p) => p.id === id)).filter((p): p is Product => !!p),
+    [editIds, products]
+  );
+  const toggleEdit = (id: string) =>
+    setEditIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const handleQuickSave = async (id: string, data: { sellingPrice: number; stock: number }) => {
+    if (!storeId) return;
+    await offlineAwareAwait(updateProduct(storeId, id, data));
+  };
 
   const totalValue = products.reduce((s, p) => s + p.stock * p.purchasePrice, 0);
   const outOfStock = products.filter(p => p.stock === 0);
@@ -300,7 +316,45 @@ export default function InventoryPage() {
       <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap" }}>
         <div style={{ position: "relative", flex: "1 1 200px" }}>
           <Search size={16} style={{ position: "absolute", right: "0.75rem", top: "50%", transform: "translateY(-50%)", color: "#9ca3af" }} />
-          <input className="input-field" style={{ paddingRight: "2.25rem" }} placeholder="بحث..." value={search} onChange={e => setSearch(e.target.value)} />
+          <input
+            className="input-field" style={{ paddingRight: "2.25rem" }} placeholder="بحث، ثم انقر منتجاً لإضافته للوحة التعديل..."
+            value={search}
+            onFocus={() => setShowEditDropdown(true)}
+            onBlur={() => setTimeout(() => setShowEditDropdown(false), 150)}
+            onChange={e => { setSearch(e.target.value); setShowEditDropdown(true); }}
+          />
+          {search.trim() && showEditDropdown && filtered.length > 0 && (
+            <div style={{
+              position: "absolute", top: "100%", right: 0, left: 0, zIndex: 50,
+              background: "white", border: "1px solid #e5e7eb", borderRadius: "0.625rem",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.1)", marginTop: "4px", maxHeight: "260px", overflowY: "auto",
+            }}>
+              {filtered.slice(0, 10).map((p) => {
+                const added = editIds.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    onMouseDown={(e) => { e.preventDefault(); toggleEdit(p.id); }}
+                    style={{
+                      width: "100%", padding: "0.55rem 0.875rem", background: added ? "#f1f8ee" : "none",
+                      border: "none", borderBottom: "1px solid #f3f4f6", textAlign: "right", cursor: "pointer",
+                      display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.85rem",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
+                      <span style={{
+                        width: "20px", height: "20px", borderRadius: "5px", flexShrink: 0,
+                        border: added ? "none" : "1px solid #c5e5b8", background: added ? "#26683a" : "white",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>{added ? <Check size={13} color="white" /> : <Plus size={13} color="#49a35c" />}</span>
+                      <span style={{ fontWeight: 600, color: "#17231c", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.nameAr || p.name}</span>
+                    </div>
+                    <span style={{ color: "#26683a", fontWeight: 700, whiteSpace: "nowrap" }}>{p.stock} {p.unit}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
         <select className="input-field" style={{ flex: "0 0 160px" }} value={category} onChange={e => setCategory(e.target.value)}>
           {categories.map(c => <option key={c}>{c}</option>)}
@@ -309,6 +363,13 @@ export default function InventoryPage() {
           {["الكل", "متوفر", "قليل", "نفد"].map(s => <option key={s}>{s}</option>)}
         </select>
       </div>
+
+      <QuickEditPanel
+        products={editProducts}
+        onRemove={(id) => setEditIds((prev) => prev.filter((x) => x !== id))}
+        onClear={() => setEditIds([])}
+        onSave={handleQuickSave}
+      />
 
       {/* Table */}
       <div className="table-container">

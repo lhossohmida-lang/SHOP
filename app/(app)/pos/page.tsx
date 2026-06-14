@@ -50,15 +50,34 @@ export default function PosPage() {
   const [stockLoading, setStockLoading] = useState(false);
 
   const searchRef = useRef<HTMLInputElement>(null);
+  // عند الطباعة على سطح المكتب تفقد النافذة التركيز؛ نعيده لخانة البحث عند عودة التركيز.
+  const wantSearchFocusRef = useRef(false);
 
   // المنتج الذي يجب تركيز حقله بعد الإضافة (nonce يتغيّر مع كل إضافة لإعادة التركيز).
   const [amountFocus, setAmountFocus] = useState<{ id: string; nonce: number }>({ id: "", nonce: 0 });
   // الاقتراح المحدَّد في قائمة البحث (للتنقّل بأسهم لوحة المفاتيح).
   const [selIdx, setSelIdx] = useState(0);
 
+  // الوجهة الدائمة بعد أي عملية: خانة البحث (لقراءة باركود/اسم جديد).
+  const focusSearch = useCallback(() => {
+    setTimeout(() => searchRef.current?.focus(), 0);
+  }, []);
+
+  // إعادة التركيز لخانة البحث عند عودة تركيز النافذة بعد نافذة الطباعة (سطح المكتب).
+  useEffect(() => {
+    const onWinFocus = () => {
+      if (wantSearchFocusRef.current) {
+        wantSearchFocusRef.current = false;
+        setTimeout(() => searchRef.current?.focus(), 50);
+      }
+    };
+    window.addEventListener("focus", onWinFocus);
+    return () => window.removeEventListener("focus", onWinFocus);
+  }, []);
+
   const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
-  const tryAddProduct = useCallback((p: Product) => {
+  const tryAddProduct = useCallback((p: Product, focusCart = false) => {
     if (p.stock <= 0) {
       // Show the out-of-stock modal instead of just a toast
       setOutOfStockProduct(p);
@@ -71,8 +90,9 @@ export default function PosPage() {
       showMsg("❌ المنتج نفد من المخزون ولا يمكن إدخاله");
       return false;
     }
-    // انقل المؤشّر تلقائياً لحقل المبلغ الخاص بهذا السطر.
-    setAmountFocus(f => ({ id: p.id, nonce: f.nonce + 1 }));
+    // الإضافة اليدوية (اختيار من القائمة) تنقل المؤشّر لحقل الكمية/المبلغ في السلة.
+    // أمّا المسح بالباركود فيُبقي التركيز على خانة البحث للمسح المتتالي.
+    if (focusCart) setAmountFocus(f => ({ id: p.id, nonce: f.nonce + 1 }));
     return true;
   }, [addProduct]);
 
@@ -92,12 +112,13 @@ export default function PosPage() {
       await offlineAwareAwait(updateStock(storeId, outOfStockProduct.id, qty), 2000);
       showMsg(`✅ تمت إضافة ${qty} وحدة لـ ${outOfStockProduct.nameAr || outOfStockProduct.name}`);
       setOutOfStockProduct(null);
+      focusSearch();
     } catch (e) {
       setStockPinError("حدث خطأ أثناء التحديث");
     } finally {
       setStockLoading(false);
     }
-  }, [storeId, outOfStockProduct, stockPin, stockQty]);
+  }, [storeId, outOfStockProduct, stockPin, stockQty, focusSearch]);
 
   useEffect(() => { searchRef.current?.focus(); }, []);
 
@@ -201,11 +222,12 @@ export default function PosPage() {
       setActiveMobileTab("cart");
       showMsg(`✅ تم البيع — ${receiptNumber}`);
       setLoading(false);
-      // أعد التركيز على خانة البحث حتى يستمر المسح/الكتابة بعد كل عملية بيع
-      setTimeout(() => searchRef.current?.focus(), 0);
+      // الوجهة الدائمة: خانة البحث بعد كل عملية بيع
+      focusSearch();
 
       // Print immediately
       if (shouldPrint) {
+        wantSearchFocusRef.current = true; // أعد التركيز لخانة البحث بعد إغلاق نافذة الطباعة
         printReceipt(saleWithTimestamp);
       }
 
@@ -324,7 +346,7 @@ export default function PosPage() {
               <ScanLine size={17} /> USB
             </button>
             {cart.lines.length > 0 && (
-              <button onClick={cart.clearCart}
+              <button onClick={() => { cart.clearCart(); focusSearch(); }}
                 style={{ padding: "0.6rem 0.875rem", borderRadius: "0.5rem", border: "1px solid #fca5a5", background: "#fef2f2", color: "#dc2626", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.82rem", whiteSpace: "nowrap" }}>
                 <Trash2 size={15} /> مسح الكل
               </button>
@@ -376,7 +398,7 @@ export default function PosPage() {
                 }
                 if (suggestions.length > 0) {
                   const chosen = suggestions[Math.min(selIdx, suggestions.length - 1)];
-                  if (tryAddProduct(chosen)) {
+                  if (tryAddProduct(chosen, true)) {
                     setSearch("");
                     setShowDropdown(false);
                     setSelIdx(0);
@@ -401,7 +423,7 @@ export default function PosPage() {
               boxShadow: "0 8px 24px rgba(0,0,0,0.1)", marginTop: "4px", maxHeight: "220px", overflowY: "auto"
             }}>
               {suggestions.map((p, i) => (
-                <button key={p.id} onMouseDown={() => { if (tryAddProduct(p)) { setSearch(""); setShowDropdown(false); setSelIdx(0); } }}
+                <button key={p.id} onMouseDown={() => { if (tryAddProduct(p, true)) { setSearch(""); setShowDropdown(false); setSelIdx(0); } }}
                   onMouseEnter={() => setSelIdx(i)}
                   style={{
                     width: "100%", padding: "0.6rem 0.875rem",
@@ -489,8 +511,8 @@ export default function PosPage() {
               {cart.lines.length > 0 && (
                 <span className="badge-green">{cart.lines.length} صنف</span>
               )}
-              <span style={{ marginRight: "auto", fontSize: "0.72rem", color: "#9ca3af", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                اضغط <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: "0.7rem", fontFamily: "monospace" }}>F1</kbd> نافذة جديدة &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #c5e5b8", background: "#f1f8ee", fontSize: "0.7rem", fontFamily: "monospace", color: "#26683a" }}>F10</kbd> تأكيد بدون طباعة
+              <span style={{ marginRight: "auto", fontSize: "0.72rem", color: "#9ca3af", display: "flex", alignItems: "center", gap: "0.25rem", flexWrap: "wrap" }}>
+                <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: "0.7rem", fontFamily: "monospace" }}>F1</kbd> نافذة &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #c5e5b8", background: "#f1f8ee", fontSize: "0.7rem", fontFamily: "monospace", color: "#26683a" }}>F9</kbd> طباعة وتأكيد &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #c5e5b8", background: "#f1f8ee", fontSize: "0.7rem", fontFamily: "monospace", color: "#26683a" }}>F10</kbd> تأكيد بدون طباعة
               </span>
             </div>
             <PosTable
@@ -501,7 +523,7 @@ export default function PosPage() {
               onRemove={cart.removeLine}
               focusProductId={amountFocus.id}
               focusNonce={amountFocus.nonce}
-              onReturnToSearch={() => searchRef.current?.focus()}
+              onReturnToSearch={focusSearch}
             />
 
             {/* Mobile-only go to checkout sticky button */}
@@ -536,7 +558,7 @@ export default function PosPage() {
             itemCount={cart.itemCount}
             onDiscountValue={cart.setDiscountValue}
             onDiscountPct={cart.setDiscountPct}
-            onClear={cart.clearCart}
+            onClear={() => { cart.clearCart(); focusSearch(); }}
             onConfirm={handleConfirmOnly}
             onConfirmAndPrint={handleConfirmAndPrint}
             loading={loading}

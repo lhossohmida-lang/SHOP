@@ -219,9 +219,10 @@ export default function PosPage() {
         receiptNumber, storeId,
       };
 
-      const saleId = `offline-${receiptNumber}`;
-      const saleWithTimestamp: Sale = { ...saleData, id: saleId, createdAt: now };
-      
+      // addSale يُولِّد الـ ID فوراً محلياً (doc()+setDoc()) فيكون saleId صحيحاً دائماً
+      const actualSaleId = addSale(storeId, saleData);
+      const saleWithTimestamp: Sale = { ...saleData, id: actualSaleId, createdAt: now };
+
       // Clear cart and show success immediately
       cart.clearCart();
       setSelectedCustomer(null);
@@ -237,27 +238,17 @@ export default function PosPage() {
         printReceipt(saleWithTimestamp);
       }
 
-      // Save to database in background (don't wait).
+      // Save stock deductions and credit in background (don't wait).
       // كل خطوة مستقلة: فشل خصم مخزون منتج لا يجب أن يمنع تسجيل الكريدي أو خصم باقي المنتجات.
       const creditCustomer = mode === "credit" ? selectedCustomer : null;
       (async () => {
-        // 1) خصم المخزون أولاً — يُطبَّق على الكاش المحلي فوراً فيظهر الخصم حتى دون اتصال،
-        //    ولا يُعطّله انتظار حفظ الفاتورة على الخادم.
+        // 1) خصم المخزون — يُطبَّق على الكاش المحلي فوراً فيظهر الخصم حتى دون اتصال.
         for (const l of cartLines.filter(l => l.quantity > 0)) {
           try {
             await updateStock(storeId, l.productId, -l.quantity);
           } catch (e) {
             console.error("updateStock failed for", l.productId, e);
           }
-        }
-
-        // 2) حفظ الفاتورة — تُطبَّق محلياً فوراً؛ لا ننتظر تأكيد الخادم أكثر من مهلة قصيرة.
-        let actualSaleId = saleId;
-        try {
-          const id = await offlineAwareAwait(addSale(storeId, saleData), 2000);
-          if (id) actualSaleId = id;
-        } catch (e) {
-          console.error("addSale failed:", e);
         }
 
         // 3) تسجيل الكريدي — يُستدعى دون انتظار تأكيد الخادم (يُطبَّق محلياً ويتزامن لاحقاً)

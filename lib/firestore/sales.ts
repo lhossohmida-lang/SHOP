@@ -1,6 +1,7 @@
 import {
   collection,
   addDoc,
+  setDoc,
   query,
   orderBy,
   onSnapshot,
@@ -48,16 +49,19 @@ export function salesCol(storeId: string) {
   return collection(db, "stores", storeId, "sales");
 }
 
-export async function addSale(storeId: string, data: Omit<Sale, "id" | "createdAt">): Promise<string> {
-  const ref = await addDoc(salesCol(storeId), sanitizeFirestoreData({
+export function addSale(storeId: string, data: Omit<Sale, "id" | "createdAt">): string {
+  // نُولِّد الـ ID فوراً على جهة العميل (بدون انتظار الخادم) ثم نكتب في الخلفية.
+  // هذا يضمن أن saleId المحفوظ في معاملات الكريدي يُطابق وثيقة الفاتورة الفعلية
+  // سواء كنا متصلين أم لا — لأن doc() ينشئ الـ ID محلياً فوراً.
+  const ref = doc(salesCol(storeId));
+  setDoc(ref, sanitizeFirestoreData({
     ...data,
     customerId: data.customerId || "",
     customerName: data.customerName || "",
     note: data.note || "",
     storeId,
-    // Use client timestamp as fallback for offline mode
     createdAt: new Date(),
-  }));
+  })).catch((e) => console.warn("[addSale] sync pending:", e));
   return ref.id;
 }
 

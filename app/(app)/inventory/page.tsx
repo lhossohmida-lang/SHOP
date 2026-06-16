@@ -6,9 +6,10 @@ import { updateProduct } from "@/lib/firestore/products";
 import { getPosShortcuts, savePosShortcuts } from "@/lib/firestore/shortcuts";
 import { offlineAwareAwait } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
-import { productMatchesBarcodeSearch } from "@/lib/utils/barcode";
+import { productMatchesBarcodeSearch, normalizeScannedDigits } from "@/lib/utils/barcode";
 import { Search, AlertTriangle, Edit2, Zap, X, Check, Printer, Plus } from "lucide-react";
 import QuickEditPanel from "@/components/products/QuickEditPanel";
+import Toast from "@/components/ui/Toast";
 import type { Product } from "@/types/product";
 
 type StockModal = "out" | "low" | "expiry" | null;
@@ -34,6 +35,16 @@ function expiryInfo(dateStr?: string): { label: string; color: string } {
   return { label: `${d} يوم متبقّي`, color: d <= 7 ? "#dc2626" : "#d97706" };
 }
 
+// حجم خط رقم البطاقة حسب طوله حتى لا يتجاوز حدود البطاقة (الأرقام الكبيرة تصغر).
+function statFontSize(v: string | number): string {
+  const len = String(v).length;
+  if (len <= 6) return "1.5rem";
+  if (len <= 9) return "1.3rem";
+  if (len <= 13) return "1.1rem";
+  if (len <= 17) return "0.95rem";
+  return "0.82rem";
+}
+
 export default function InventoryPage() {
   const { appUser } = useAuth();
   const storeId = appUser?.storeId;
@@ -46,6 +57,8 @@ export default function InventoryPage() {
   // لوحة "منتجات محدّدة للتعديل"
   const [editIds, setEditIds] = useState<string[]>([]);
   const [showEditDropdown, setShowEditDropdown] = useState(false);
+  const [msg, setMsg] = useState("");
+  const showMsg = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 3000); };
 
   // Stock modal (out / low)
   const [stockModal, setStockModal] = useState<StockModal>(null);
@@ -139,7 +152,7 @@ export default function InventoryPage() {
       setShowShortcuts(false);
     } catch (e) {
       console.error(e);
-      alert("حدث خطأ أثناء حفظ الاختصارات: " + e);
+      showMsg("⚠️ حدث خطأ أثناء حفظ الاختصارات");
     } finally {
       setSavingShortcuts(false);
     }
@@ -221,6 +234,7 @@ export default function InventoryPage() {
 
   return (
     <div className="animate-fade-in">
+      <Toast message={msg} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
         <div>
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#17231c" }}>إدارة المخزون</h1>
@@ -249,7 +263,7 @@ export default function InventoryPage() {
         {/* Total value */}
         <div className="card-sm" style={{ border: "1px solid #f1f8ee", background: "#f1f8ee" }}>
           <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: "0.25rem" }}>قيمة المخزون</div>
-          <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#49a35c" }}>{formatCurrency(totalValue)}</div>
+          <div style={{ fontSize: statFontSize(formatCurrency(totalValue)), fontWeight: 700, color: "#49a35c", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{formatCurrency(totalValue)}</div>
         </div>
         {/* Total products */}
         <div className="card-sm" style={{ border: "1px solid #eff6ff", background: "#eff6ff" }}>
@@ -321,7 +335,7 @@ export default function InventoryPage() {
             value={search}
             onFocus={() => setShowEditDropdown(true)}
             onBlur={() => setTimeout(() => setShowEditDropdown(false), 150)}
-            onChange={e => { setSearch(e.target.value); setShowEditDropdown(true); }}
+            onChange={e => { setSearch(normalizeScannedDigits(e.target.value)); setShowEditDropdown(true); }}
           />
           {search.trim() && showEditDropdown && filtered.length > 0 && (
             <div style={{

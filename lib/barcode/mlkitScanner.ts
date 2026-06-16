@@ -64,17 +64,26 @@ export async function startMlKitScan(onDetected: (barcode: string) => void): Pro
 
   let listener: PluginListenerHandle | null = null;
 
-  listener = await BarcodeScanner.addListener("barcodesScanned", (event) => {
-    const raw = event.barcodes[0]?.rawValue ?? event.barcodes[0]?.displayValue ?? "";
-    const code = normalizeBarcode(raw);
-    if (code && isValidGroceryBarcode(code)) {
-      onDetected(code);
-    }
-  });
+  // إن فشل بدء المسح، أزِل صنف الإخفاء فوراً وإلا يبقى التطبيق مخفياً/غير قابل للتفاعل.
+  try {
+    listener = await BarcodeScanner.addListener("barcodesScanned", (event) => {
+      const raw = event.barcodes[0]?.rawValue ?? event.barcodes[0]?.displayValue ?? "";
+      const code = normalizeBarcode(raw);
+      if (code && isValidGroceryBarcode(code)) {
+        onDetected(code);
+      }
+    });
 
-  await BarcodeScanner.startScan({
-    formats: GROCERY_BARCODE_FORMATS,
-  });
+    await BarcodeScanner.startScan({
+      formats: GROCERY_BARCODE_FORMATS,
+    });
+  } catch (e) {
+    document.body.classList.remove("barcode-scanner-active");
+    try { await listener?.remove(); } catch {}
+    try { await BarcodeScanner.removeAllListeners(); } catch {}
+    try { await BarcodeScanner.stopScan(); } catch {}
+    throw e;
+  }
 
   return {
     stop: async () => {

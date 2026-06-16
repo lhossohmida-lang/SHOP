@@ -38,6 +38,7 @@ export interface ProductFormData {
 
 export const PRODUCT_CATEGORIES = [
   "مواد غذائية",
+  "معلبات",
   "مشروبات",
   "منظفات",
   "مواد تجميل",

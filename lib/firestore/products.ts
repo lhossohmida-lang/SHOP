@@ -11,6 +11,7 @@ import {
   orderBy,
   onSnapshot,
   serverTimestamp,
+  increment,
   Timestamp,
   QueryConstraint,
 } from "firebase/firestore";
@@ -110,13 +111,12 @@ export async function updateStock(
   delta: number
 ): Promise<void> {
   const ref = doc(productsCol(storeId), productId);
-  const snap = await getDocOfflineFirst(ref);
-  if (!snap.exists()) return;
-  const current = (snap.data().stock as number) || 0;
-  await updateDoc(ref, sanitizeFirestoreData({
-    stock: current + delta,
+  // increment ذرّي يُطبَّق على الكاش المحلي فوراً (يظهر الخصم حتى دون اتصال) ويتزامن لاحقاً.
+  // لا ننتظر تأكيد الخادم حتى لا تتعلّق العملية في وضع عدم الاتصال.
+  updateDoc(ref, {
+    stock: increment(delta),
     updatedAt: serverTimestamp(),
-  }));
+  }).catch((e) => console.warn("[updateStock] sync pending/failed:", e));
 }
 
 export async function deleteProduct(

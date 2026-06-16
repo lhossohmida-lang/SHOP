@@ -1,6 +1,6 @@
 "use client";
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import Sidebar from "@/components/layout/Sidebar";
 import BottomNav from "@/components/layout/BottomNav";
@@ -10,12 +10,28 @@ import { Loader2 } from "lucide-react";
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { appUser, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (!loading && !appUser) {
       router.replace("/login");
     }
   }, [appUser, loading, router]);
+
+  // شبكة أمان: صنف ماسح الباركود يخفي التطبيق بالكامل (visibility:hidden) لإظهار
+  // كاميرا أندرويد خلفه. إن بقي عالقاً يبدو التطبيق متجمّداً ولا يمكن الكتابة.
+  // أزِله عند كل تنقّل، وعند عودة التطبيق للواجهة (تصغير ثم فتح) حتى يتعافى تلقائياً.
+  // التقييد على "visible" يتجنّب إزالته أثناء مسح كاميرا نشط فعلاً.
+  useEffect(() => {
+    document.body.classList.remove("barcode-scanner-active");
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        document.body.classList.remove("barcode-scanner-active");
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [pathname]);
 
   if (loading) {
     return (

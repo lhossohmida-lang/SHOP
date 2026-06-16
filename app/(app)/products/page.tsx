@@ -58,12 +58,28 @@ export default function ProductsPage() {
 
   const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
-  // أعد التركيز على خانة البحث عند إغلاق النموذج، وإلا يلتقط قارئ USB الكتابة فلا
-  // يمكن الكتابة في خانة البحث (مثلاً بعد رسالة "المنتج موجود أصلاً").
+  // أعد التركيز على خانة البحث عند إغلاق أي نافذة، وإلا يلتقط قارئ USB الكتابة فلا
+  // يمكن الكتابة في خانة البحث (بعد إضافة/حذف منتج أو رسالة "المنتج موجود أصلاً").
   const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (!showForm) searchRef.current?.focus();
-  }, [showForm]);
+    if (!showForm && !productToDelete && !showBulkDeleteConfirm) {
+      searchRef.current?.focus();
+    }
+  }, [showForm, productToDelete, showBulkDeleteConfirm]);
+
+  // مخرج طوارئ: مفتاح Escape يغلق أي نافذة عالقة فيعود قارئ الباركود والكتابة للعمل فوراً.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowForm(false);
+        setEditingProduct(null);
+        setProductToDelete(null);
+        setShowBulkDeleteConfirm(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // المنتجات المحدَّدة للتعديل (بترتيب الإضافة) + إضافة/إزالة + حفظ سريع للسعر والمخزون.
   const editProducts = useMemo(
@@ -149,26 +165,30 @@ export default function ProductsPage() {
   };
 
   const handleSave = async (data: ProductFormData) => {
-    if (!storeId) return;
+    if (!storeId) { showMsg("⚠️ تعذّر الحفظ — أعد تسجيل الدخول"); return; }
 
     const duplicateError = getDuplicateProductError(products, data, editingProduct?.id);
     if (duplicateError) {
-      alert(duplicateError);
+      // رسالة غير معطِّلة (alert يوقف الواجهة ويسرق التركيز) — والنموذج يبقى مفتوحاً للتصحيح.
+      showMsg("⚠️ " + duplicateError);
       return;
     }
 
     setSaving(true);
-    const saveOp = editingProduct
-      ? updateProduct(storeId, editingProduct.id, data)
+    const editing = editingProduct;
+    const saveOp = editing
+      ? updateProduct(storeId, editing.id, data)
       : addProduct(storeId, data);
 
     closeForm();
     setSaving(false);
 
-    saveOp.catch((e) => {
-      console.error("Error saving product:", e);
-      alert("خطأ في حفظ المنتج: " + (e instanceof Error ? e.message : String(e)));
-    });
+    saveOp
+      .then(() => showMsg(editing ? "✅ تم حفظ التعديلات" : "✅ تمت إضافة المنتج"))
+      .catch((e) => {
+        console.error("Error saving product:", e);
+        showMsg("⚠️ خطأ في حفظ المنتج");
+      });
   };
 
   const handleDelete = (p: Product) => {
@@ -191,7 +211,7 @@ export default function ProductsPage() {
   };
 
   const handleBulkDelete = async () => {
-    if (!storeId || selectedProducts.length === 0) return;
+    if (!storeId || selectedProducts.length === 0) { setShowBulkDeleteConfirm(false); return; }
     setBulkDeleting(true);
     try {
       for (const p of selectedProducts) {
@@ -205,13 +225,10 @@ export default function ProductsPage() {
       }
       setShowBulkDeleteConfirm(false);
       exitSelectionMode();
-      if (isOffline()) {
-        alert("تم حذف المنتجات محلياً. سيتم المزامنة عند عودة الإنترنت.");
-      } else {
-        alert("تم حذف المنتجات بنجاح.");
-      }
+      showMsg(isOffline() ? "✅ تم حذف المنتجات محلياً (ستتزامن لاحقاً)" : "✅ تم حذف المنتجات بنجاح");
     } catch (e) {
-      alert("خطأ أثناء الحذف: " + e);
+      console.error("bulk delete error:", e);
+      showMsg("⚠️ خطأ أثناء الحذف");
     } finally {
       setBulkDeleting(false);
     }
@@ -513,18 +530,15 @@ export default function ProductsPage() {
               </button>
               <button
                 onClick={async () => {
-                  if (!storeId) return;
                   const p = productToDelete;
-                  setProductToDelete(null);
+                  setProductToDelete(null); // أغلق النافذة دائماً أولاً حتى لا تَعلق
+                  if (!storeId || !p) return;
                   try {
                     await offlineAwareAwait(deleteProduct(storeId, p.id));
-                    if (isOffline()) {
-                      alert("تم حذف المنتج محلياً. سيتم المزامنة عند عودة الإنترنت.");
-                    }
+                    showMsg(isOffline() ? "✅ تم حذف المنتج محلياً (سيتزامن لاحقاً)" : "✅ تم حذف المنتج");
                   } catch (e) {
-                    if (!isOffline()) {
-                      alert("خطأ أثناء حذف المنتج: " + e);
-                    }
+                    console.error("delete error:", e);
+                    if (!isOffline()) showMsg("⚠️ خطأ أثناء حذف المنتج");
                   }
                 }}
                 className="btn-danger"

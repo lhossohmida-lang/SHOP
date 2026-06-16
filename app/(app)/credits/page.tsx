@@ -13,6 +13,7 @@ import { printCustomerStatement } from "@/lib/utils/print";
 import { isOffline, offlineAwareAwait } from "@/lib/firestore/helpers";
 import { Plus, X, Search, CreditCard, Phone, Calendar, Trash2, Printer, TrendingUp, Receipt, ArrowRight } from "lucide-react";
 import ExpensesPanel from "@/components/credits/ExpensesPanel";
+import Toast from "@/components/ui/Toast";
 import type { CreditCustomer, CreditTransaction } from "@/types/credit";
 
 interface CreditTransactionWithItems extends CreditTransaction {
@@ -46,6 +47,8 @@ export default function CreditsPage() {
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [isMobile, setIsMobile] = useState(false);
+  const [msg, setMsg] = useState("");
+  const showMsg = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 3000); };
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -241,23 +244,21 @@ export default function CreditsPage() {
     const balanceBefore = selectedCustomer.totalDebt;
     const balanceAfter = Math.max(0, balanceBefore - amount);
 
-    const saveOps = [
-      addCreditTransaction(storeId, {
-        customerId: selectedCustomer.id,
-        customerName: selectedCustomer.name,
-        type: "payment",
-        amount,
-        balanceBefore,
-        balanceAfter,
-        note: payNote.trim() || "",
-        createdBy: appUser!.uid,
-        createdAt: new Date(payDate),
-      }),
-      updateCreditCustomer(storeId, selectedCustomer.id, {
-        totalDebt: balanceAfter,
-        lastTransactionAt: new Date(payDate),
-      }),
-    ];
+    const txOp = addCreditTransaction(storeId, {
+      customerId: selectedCustomer.id,
+      customerName: selectedCustomer.name,
+      type: "payment",
+      amount,
+      balanceBefore,
+      balanceAfter,
+      note: payNote.trim() || "",
+      createdBy: appUser!.uid,
+      createdAt: new Date(payDate),
+    });
+    updateCreditCustomer(storeId, selectedCustomer.id, {
+      totalDebt: balanceAfter,
+      lastTransactionAt: new Date(payDate),
+    });
 
     setShowPayment(false);
     const customerToLoad = selectedCustomer;
@@ -268,16 +269,15 @@ export default function CreditsPage() {
       loadTransactions({ ...customerToLoad, totalDebt: balanceAfter }).catch(console.error);
     }
 
-    saveOps.forEach((op) => {
-      op.catch((e) => {
-        console.error("Error saving payment:", e);
-        setErrorMsg("خطأ في تسجيل الدفعة: " + (e instanceof Error ? e.message : String(e)));
-      });
+    txOp.catch((e) => {
+      console.error("Error saving payment:", e);
+      setErrorMsg("خطأ في تسجيل الدفعة: " + (e instanceof Error ? e.message : String(e)));
     });
   };
 
   return (
     <div className="animate-fade-in">
+      <Toast message={msg} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
         <div>
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#17231c" }}>خانة الكريديتات والمصاريف</h1>
@@ -772,13 +772,15 @@ export default function CreditsPage() {
               </button>
               <button
                 onClick={async () => {
-                  if (!storeId) return;
                   const c = customerToDelete;
-                  setCustomerToDelete(null);
+                  setCustomerToDelete(null); // أغلق النافذة دائماً أولاً حتى لا تَعلق
+                  if (!storeId || !c) return;
                   try {
                     await offlineAwareAwait(deleteCreditCustomer(storeId, c.id));
+                    showMsg("✅ تم حذف حساب العميل");
                   } catch (e) {
-                    alert("خطأ أثناء حذف العميل: " + e);
+                    console.error("delete customer error:", e);
+                    showMsg("⚠️ خطأ أثناء حذف العميل");
                   }
                 }}
                 className="btn-danger"

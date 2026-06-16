@@ -12,6 +12,16 @@ import PasswordGate from "@/components/layout/PasswordGate";
 import { getSalesByDateRange } from "@/lib/firestore/sales";
 import type { Sale } from "@/types/sale";
 
+// حجم خط رقم البطاقة حسب طوله حتى لا يتجاوز حدود البطاقة (الأرقام الكبيرة تصغر).
+function statFontSize(v: string | number): string {
+  const len = String(v).length;
+  if (len <= 6) return "1.5rem";
+  if (len <= 9) return "1.3rem";
+  if (len <= 13) return "1.1rem";
+  if (len <= 17) return "0.95rem";
+  return "0.82rem";
+}
+
 export default function DashboardPage() {
   const { appUser } = useAuth();
   const storeId = appUser?.storeId;
@@ -123,7 +133,7 @@ export default function DashboardPage() {
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <div>
                 <p style={{ opacity: 0.85, fontSize: "0.8rem", marginBottom: "0.25rem" }}>{s.label}</p>
-                <p style={{ fontSize: "1.5rem", fontWeight: 700 }}>{s.value}</p>
+                <p style={{ fontSize: statFontSize(s.value), fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.value}</p>
               </div>
               <span style={{ fontSize: "1.75rem", opacity: 0.7 }}>{s.icon}</span>
             </div>

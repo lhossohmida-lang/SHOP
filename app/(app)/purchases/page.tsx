@@ -11,6 +11,7 @@ import { formatCurrency } from "@/lib/utils/currency";
 import { formatDateTime } from "@/lib/utils/date";
 import { normalizeDigits, normalizeScannedDigits, productHasBarcode, productMatchesBarcodeSearch } from "@/lib/utils/barcode";
 import BarcodeScanner from "@/components/pos/BarcodeScanner";
+import Toast from "@/components/ui/Toast";
 import { Plus, X, Trash2, Search, TruckIcon, Camera } from "lucide-react";
 import type { PurchaseItem } from "@/types/purchase";
 import type { Product } from "@/types/product";
@@ -31,6 +32,8 @@ export default function PurchasesPage() {
   const [saving, setSaving] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [purchaseToDelete, setPurchaseToDelete] = useState<any>(null);
+  const [msg, setMsg] = useState("");
+  const showMsg = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 3000); };
 
   const searchResults =
     productSearch.length > 1
@@ -112,18 +115,15 @@ export default function PurchasesPage() {
   };
 
   const confirmDelete = async () => {
-    if (!storeId || !purchaseToDelete) return;
+    const purchase = purchaseToDelete;
+    setPurchaseToDelete(null); // أغلق النافذة دائماً أولاً حتى لا تَعلق
+    if (!storeId || !purchase) return;
     try {
-      await offlineAwareAwait(deletePurchase(storeId, purchaseToDelete.id));
-      setPurchaseToDelete(null);
-      if (isOffline()) {
-        alert("تم حذف المشتريات محلياً. سيتم المزامنة عند عودة الإنترنت.");
-      }
+      await offlineAwareAwait(deletePurchase(storeId, purchase.id));
+      showMsg(isOffline() ? "✅ تم حذف المشتريات محلياً (ستتزامن لاحقاً)" : "✅ تم حذف المشتريات");
     } catch (e) {
-      if (!isOffline()) {
-        alert("خطأ أثناء حذف المشتريات: " + e);
-      }
-      setPurchaseToDelete(null);
+      console.error("delete purchase error:", e);
+      if (!isOffline()) showMsg("⚠️ خطأ أثناء حذف المشتريات");
     }
   };
 
@@ -161,15 +161,13 @@ export default function PurchasesPage() {
     setNote("");
     setSaving(false);
 
-    if (isOffline()) {
-      alert("تم حفظ الاستلام محلياً. سيتم المزامنة عند عودة الإنترنت.");
-    }
+    showMsg(isOffline() ? "✅ تم حفظ الاستلام محلياً (سيتزامن لاحقاً)" : "✅ تم حفظ الاستلام");
 
     saveOps.forEach((op) => {
       op.catch((e) => {
         console.error("Error saving purchase in background:", e);
         if (!isOffline()) {
-          alert("خطأ في حفظ المشتريات: " + (e instanceof Error ? e.message : String(e)));
+          showMsg("⚠️ خطأ في حفظ المشتريات");
         }
       });
     });
@@ -177,6 +175,7 @@ export default function PurchasesPage() {
 
   return (
     <div className="animate-fade-in">
+      <Toast message={msg} />
       {showCamera && (
         <BarcodeScanner onScan={handleBarcodeScanned} onClose={() => setShowCamera(false)} />
       )}

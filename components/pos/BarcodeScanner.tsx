@@ -41,15 +41,26 @@ export default function BarcodeScanner({ onScan, onClose }: BarcodeScannerProps)
     onCloseRef.current = onClose;
   }, [onScan, onClose]);
 
+  // ضمان نهائي: عند إزالة الماسح من الشاشة أزِل صنف الإخفاء مهما حدث،
+  // حتى لا يبقى التطبيق مخفياً/متجمّداً (لا يمكن الكتابة) إذا تعطّل مسار الإغلاق.
+  useEffect(() => {
+    return () => { document.body.classList.remove("barcode-scanner-active"); };
+  }, []);
+
   const stopSession = useCallback(async () => {
-    if (mlKitSessionRef.current) {
-      await mlKitSessionRef.current.stop();
-      mlKitSessionRef.current = null;
-    }
-    if (zxingSessionRef.current) {
-      zxingSessionRef.current.stop();
-      zxingSessionRef.current = null;
-    }
+    // كل خطوة في try مستقلة حتى لا يمنع فشل إحداها إغلاق الماسح أو إزالة صنف الإخفاء.
+    try {
+      if (mlKitSessionRef.current) {
+        await mlKitSessionRef.current.stop();
+        mlKitSessionRef.current = null;
+      }
+    } catch {}
+    try {
+      if (zxingSessionRef.current) {
+        zxingSessionRef.current.stop();
+        zxingSessionRef.current = null;
+      }
+    } catch {}
     document.body.classList.remove("barcode-scanner-active");
   }, []);
 

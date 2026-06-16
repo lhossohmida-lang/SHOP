@@ -80,12 +80,17 @@ export async function offlineAwareAwait<T>(
   return undefined;
 }
 
-/** Run several writes offline-tolerant (used for multi-step saves). */
+/** Run several writes offline-tolerant (used for multi-step saves).
+ * كل عملية مستقلة: فشل إحداها لا يُجهض البقية (مهم لإرجاع كل منتجات الفاتورة). */
 export async function runOfflineWrites(
   operations: Array<() => Promise<unknown>>
 ): Promise<void> {
   for (const op of operations) {
-    await offlineAwareAwait(op());
+    try {
+      await offlineAwareAwait(op());
+    } catch (err) {
+      console.warn("[runOfflineWrites] operation failed (continuing):", err);
+    }
   }
 }
 

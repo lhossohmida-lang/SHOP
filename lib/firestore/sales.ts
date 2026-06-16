@@ -12,11 +12,12 @@ import {
   limit,
   doc,
   deleteDoc,
-  getDoc,
   updateDoc,
+  increment,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { sanitizeFirestoreData, runOfflineWrites, getDocOfflineFirst, getDocsOfflineFirst } from "@/lib/firestore/helpers";
+import { getDoc } from "firebase/firestore";
 import type { Sale } from "@/types/sale";
 
 function toSale(id: string, data: Record<string, unknown>): Sale {
@@ -135,61 +136,131 @@ export async function getSalesByDateRange(
 }
 
 export async function deleteSaleAndRestoreStock(storeId: string, sale: Sale): Promise<void> {
-  // Perform all operations without waiting - Firestore persistence handles the rest
-  const operations = [];
-
-  // 1. Restore product stocks
+  // 1. استعادة مخزون كل صنف بـ increment ذرّي — يُطبَّق محلياً فوراً بدون انتظار الخادم
   for (const item of sale.items) {
-    if (item.productId) {
-      operations.push(async () => {
-        const prodRef = doc(db, "stores", storeId, "products", item.productId);
-        const prodSnap = await getDoc(prodRef);
-        if (prodSnap.exists()) {
-          const currentStock = (prodSnap.data().stock as number) || 0;
-          await updateDoc(prodRef, {
-            stock: currentStock + item.quantity,
-            updatedAt: serverTimestamp(),
-          });
-        }
-      });
+    if (item.productId && item.quantity > 0) {
+      updateDoc(doc(db, "stores", storeId, "products", item.productId), {
+        stock: increment(item.quantity),
+        updatedAt: serverTimestamp(),
+      }).catch((e) => console.warn("[deleteSale] restoreStock failed:", e));
     }
   }
 
-  // 2. Adjust credit customer debt if paid by credit
+  // 2. تعديل دين الكريدي إن وُجد — increment سالب لتجنّب قراءة القيمة الحالية
   if (sale.paymentMethod === "credit" && sale.customerId) {
+    updateDoc(doc(db, "stores", storeId, "creditCustomers", sale.customerId), {
+      totalDebt: increment(-sale.total),
+      lastTransactionAt: serverTimestamp(),
+    }).catch((e) => console.warn("[deleteSale] creditDebt adjust failed:", e));
+
+    // حذف معاملات الكريدي المرتبطة بالفاتورة (تحتاج قراءة — تُنفَّذ في الخلفية)
+    getDocs(query(
+      collection(db, "stores", storeId, "creditTransactions"),
+      where("saleId", "==", sale.id)
+    )).then((snap) => {
+      snap.docs.forEach((d) => deleteDoc(d.ref).catch(() => {}));
+    }).catch((e) => console.warn("[deleteSale] creditTx delete failed:", e));
+  }
+
+  // 3. حذف الفاتورة — يُطبَّق محلياً فوراً
+  deleteDoc(doc(db, "stores", storeId, "sales", sale.id))
+    .catch((e) => console.warn("[deleteSale] sale delete failed:", e));
+}
+
+/**
+ * إرجاع جزئي: يُرجع كميات محددة من أصناف فاتورة (وليس كلها).
+ * - يستعيد مخزون الأصناف المُرتجَعة فقط.
+ * - يُحدّث أصناف الفاتورة وإجماليها (أو يحذفها إن أُرجعت كل الأصناف).
+ * - إن كانت كريدي: يخصم قيمة المُرتجَع من دين العميل ويسجّل معاملة إرجاع.
+ * كل عملية مستقلة حتى لا يُجهض فشل إحداها البقية.
+ */
+export async function returnSaleItems(
+  storeId: string,
+  sale: Sale,
+  returns: { productId: string; quantity: number }[]
+): Promise<{ returnedValue: number; allReturned: boolean }> {
+  const returnMap = new Map(
+    returns.filter((r) => r.quantity > 0).map((r) => [r.productId, r.quantity])
+  );
+
+  // احسب القيمة المُرتجَعة والأصناف المتبقية
+  let returnedValue = 0;
+  const newItems = sale.items
+    .map((it) => {
+      const rq = returnMap.get(it.productId) || 0;
+      if (rq <= 0) return it;
+      const ret = Math.min(rq, it.quantity);
+      const unit = it.quantity > 0 ? it.totalPrice / it.quantity : it.unitPrice;
+      returnedValue += unit * ret;
+      const newQty = it.quantity - ret;
+      return { ...it, quantity: newQty, totalPrice: unit * newQty };
+    })
+    .filter((it) => it.quantity > 0);
+
+  const allReturned = newItems.length === 0;
+  const newSubtotal = Math.max(0, sale.subtotal - returnedValue);
+  const newTotal = Math.max(0, sale.total - returnedValue);
+
+  const operations: Array<() => Promise<unknown>> = [];
+
+  // 1) استعادة مخزون الأصناف المُرتجَعة فقط — increment ذرّي يُطبَّق محلياً فوراً
+  for (const [productId, qty] of returnMap) {
+    operations.push(() =>
+      updateDoc(doc(db, "stores", storeId, "products", productId), {
+        stock: increment(qty),
+        updatedAt: serverTimestamp(),
+      })
+    );
+  }
+
+  // 2) تحديث الفاتورة أو حذفها إن أُرجع كل شيء
+  operations.push(async () => {
+    const saleRef = doc(db, "stores", storeId, "sales", sale.id);
+    if (allReturned) {
+      await deleteDoc(saleRef);
+    } else {
+      await updateDoc(saleRef, sanitizeFirestoreData({
+        items: newItems,
+        subtotal: newSubtotal,
+        total: newTotal,
+        updatedAt: serverTimestamp(),
+      }));
+    }
+  });
+
+  // 3) خصم قيمة المُرتجَع من دين العميل (كريدي) + تسجيل معاملة إرجاع
+  if (sale.paymentMethod === "credit" && sale.customerId && returnedValue > 0) {
     operations.push(async () => {
-      const custRef = doc(db, "stores", storeId, "creditCustomers", sale.customerId);
+      const custRef = doc(db, "stores", storeId, "creditCustomers", sale.customerId!);
       const custSnap = await getDoc(custRef);
       if (custSnap.exists()) {
         const currentDebt = (custSnap.data().totalDebt as number) || 0;
+        const balanceAfter = Math.max(0, currentDebt - returnedValue);
         await updateDoc(custRef, {
-          totalDebt: Math.max(0, currentDebt - sale.total),
+          totalDebt: balanceAfter,
           lastTransactionAt: serverTimestamp(),
         });
-      }
-
-      // 3. Delete corresponding credit transactions
-      const txQuery = query(
-        collection(db, "stores", storeId, "creditTransactions"),
-        where("saleId", "==", sale.id)
-      );
-      const txSnap = await getDocs(txQuery);
-      for (const d of txSnap.docs) {
-        await deleteDoc(d.ref);
+        await addDoc(collection(db, "stores", storeId, "creditTransactions"), sanitizeFirestoreData({
+          customerId: sale.customerId,
+          customerName: sale.customerName || "",
+          type: "payment", // الإرجاع يُقلّل الدين
+          amount: returnedValue,
+          balanceBefore: currentDebt,
+          balanceAfter,
+          saleId: sale.id,
+          note: `إرجاع أصناف من الفاتورة ${sale.receiptNumber}`,
+          storeId,
+          createdAt: new Date(),
+        }));
       }
     });
   }
 
-  // 4. Delete the sale itself
-  operations.push(async () => {
-    const saleRef = doc(db, "stores", storeId, "sales", sale.id);
-    await deleteDoc(saleRef);
+  runOfflineWrites(operations).catch((err) => {
+    console.error("Error returning sale items:", err);
   });
 
-  // Run all operations in background - don't wait for completion
-  runOfflineWrites(operations).catch((err) => {
-    console.error("Error deleting sale:", err);
-  });
+  return { returnedValue, allReturned };
 }
 
 export async function getSale(storeId: string, saleId: string): Promise<Sale | null> {

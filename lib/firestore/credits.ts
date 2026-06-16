@@ -134,12 +134,14 @@ export async function addCustomerDebt(
   });
 }
 
-export async function updateCreditCustomer(
+export function updateCreditCustomer(
   storeId: string,
   customerId: string,
   data: Partial<CreditCustomer>
-): Promise<void> {
-  await updateDoc(doc(creditCustomersCol(storeId), customerId), sanitizeFirestoreData({ ...data }));
+): void {
+  // تُطبَّق محلياً فوراً وتتزامن لاحقاً — لا يُوقف التنفيذ أوفلاين
+  updateDoc(doc(creditCustomersCol(storeId), customerId), sanitizeFirestoreData({ ...data }))
+    .catch((e) => console.warn("[updateCreditCustomer] sync pending:", e));
 }
 
 export async function deleteCreditCustomer(
@@ -166,18 +168,18 @@ export function subscribeCreditCustomers(
   );
 }
 
-export async function addCreditTransaction(
+export function addCreditTransaction(
   storeId: string,
   data: Omit<CreditTransaction, "id" | "createdAt" | "storeId"> & { createdAt?: Date }
 ): Promise<string> {
-  const ref = await addDoc(creditTransactionsCol(storeId), sanitizeFirestoreData({
+  // تُطبَّق محلياً فوراً وتتزامن لاحقاً — الوعد لا يتحقّق إلا مع تأكيد الخادم لكن الكتابة تُطبَّق فوراً على الكاش
+  return addDoc(creditTransactionsCol(storeId), sanitizeFirestoreData({
     ...data,
     saleId: data.saleId || "",
     note: data.note || "",
     storeId,
-    createdAt: data.createdAt || serverTimestamp(),
-  }));
-  return ref.id;
+    createdAt: data.createdAt || new Date(),
+  })).then((ref) => ref.id);
 }
 
 export async function getCreditTransactions(

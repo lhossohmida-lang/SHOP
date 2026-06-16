@@ -77,7 +77,7 @@ export default function PosPage() {
 
   const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
-  const tryAddProduct = useCallback((p: Product, focusCart = false) => {
+  const tryAddProduct = useCallback((p: Product) => {
     if (p.stock <= 0) {
       // Show the out-of-stock modal instead of just a toast
       setOutOfStockProduct(p);
@@ -90,11 +90,16 @@ export default function PosPage() {
       showMsg("❌ المنتج نفد من المخزون ولا يمكن إدخاله");
       return false;
     }
-    // الإضافة اليدوية (اختيار من القائمة) تنقل المؤشّر لحقل الكمية/المبلغ في السلة.
-    // أمّا المسح بالباركود فيُبقي التركيز على خانة البحث للمسح المتتالي.
-    if (focusCart) setAmountFocus(f => ({ id: p.id, nonce: f.nonce + 1 }));
+    // بعد الإضافة يبقى التركيز في خانة البحث (فارغة) للمسح/الكتابة التالية.
+    // للتعديل على الكمية/السعر: السهم لأسفل من خانة البحث ينقلك إلى السلة.
     return true;
   }, [addProduct]);
+
+  // النزول من خانة البحث إلى السلة (آخر منتج مُضاف) لتعديل كميته/سعره.
+  const focusCartFromSearch = useCallback(() => {
+    const last = cart.lines[cart.lines.length - 1];
+    if (last) setAmountFocus(f => ({ id: last.productId, nonce: f.nonce + 1 }));
+  }, [cart.lines]);
 
   const handleAddStockFromPos = useCallback(async () => {
     if (!storeId || !outOfStockProduct) return;
@@ -128,11 +133,12 @@ export default function PosPage() {
       const p = (e as CustomEvent).detail as Product;
       if (p) {
         tryAddProduct(p);
+        focusSearch(); // العودة لخانة البحث بعد الاختصار (للمسح/الكتابة التالية)
       }
     };
     window.addEventListener("add-shortcut-product", handleShortcutAdd);
     return () => window.removeEventListener("add-shortcut-product", handleShortcutAdd);
-  }, [tryAddProduct]);
+  }, [tryAddProduct, focusSearch]);
 
   // F1 → open new POS window
   useEffect(() => {
@@ -231,31 +237,44 @@ export default function PosPage() {
         printReceipt(saleWithTimestamp);
       }
 
-      // Save to database in background (don't wait)
+      // Save to database in background (don't wait).
+      // كل خطوة مستقلة: فشل خصم مخزون منتج لا يجب أن يمنع تسجيل الكريدي أو خصم باقي المنتجات.
+      const creditCustomer = mode === "credit" ? selectedCustomer : null;
       (async () => {
-        try {
-          const actualSaleId = await addSale(storeId, saleData);
-          
-          for (const l of cartLines.filter(l => l.quantity > 0)) {
+        // 1) خصم المخزون أولاً — يُطبَّق على الكاش المحلي فوراً فيظهر الخصم حتى دون اتصال،
+        //    ولا يُعطّله انتظار حفظ الفاتورة على الخادم.
+        for (const l of cartLines.filter(l => l.quantity > 0)) {
+          try {
             await updateStock(storeId, l.productId, -l.quantity);
+          } catch (e) {
+            console.error("updateStock failed for", l.productId, e);
           }
+        }
 
-          if (mode === "credit" && selectedCustomer) {
-            const balanceBefore = selectedCustomer.totalDebt;
-            const balanceAfter = balanceBefore + total;
-            await addCreditTransaction(storeId, {
-              customerId: selectedCustomer.id,
-              customerName: selectedCustomer.name,
-              type: "purchase",
-              amount: total, balanceBefore, balanceAfter,
-              saleId: actualSaleId, createdBy: appUser!.uid,
-            });
-            await updateCreditCustomer(storeId, selectedCustomer.id, {
-              totalDebt: balanceAfter, lastTransactionAt: new Date(),
-            });
-          }
+        // 2) حفظ الفاتورة — تُطبَّق محلياً فوراً؛ لا ننتظر تأكيد الخادم أكثر من مهلة قصيرة.
+        let actualSaleId = saleId;
+        try {
+          const id = await offlineAwareAwait(addSale(storeId, saleData), 2000);
+          if (id) actualSaleId = id;
         } catch (e) {
-          console.error("Background save error:", e);
+          console.error("addSale failed:", e);
+        }
+
+        // 3) تسجيل الكريدي — يُستدعى دون انتظار تأكيد الخادم (يُطبَّق محلياً ويتزامن لاحقاً)
+        //    حتى يظهر الدين فوراً عند البيع بالحساب ولو دون اتصال.
+        if (creditCustomer) {
+          const balanceBefore = creditCustomer.totalDebt;
+          const balanceAfter = balanceBefore + total;
+          addCreditTransaction(storeId, {
+            customerId: creditCustomer.id,
+            customerName: creditCustomer.name,
+            type: "purchase",
+            amount: total, balanceBefore, balanceAfter,
+            saleId: actualSaleId, createdBy: appUser!.uid,
+          }).catch((e) => console.error("addCreditTransaction failed:", e));
+          updateCreditCustomer(storeId, creditCustomer.id, {
+            totalDebt: balanceAfter, lastTransactionAt: new Date(),
+          });
         }
       })();
     } catch (e) {
@@ -370,11 +389,15 @@ export default function PosPage() {
             onChange={e => { setSearch(normalizeDigits(e.target.value)); setShowDropdown(true); setSelIdx(0); }}
             onFocus={() => setShowDropdown(true)}
             onKeyDown={e => {
-              // تنقّل بين الاقتراحات بأسهم لوحة المفاتيح
-              if (e.key === "ArrowDown" && suggestions.length > 0) {
+              // السهم لأسفل: تنقّل الاقتراحات إن وُجدت، وإلا انزل إلى السلة للتعديل
+              if (e.key === "ArrowDown") {
                 e.preventDefault();
-                setShowDropdown(true);
-                setSelIdx(i => Math.min(i + 1, suggestions.length - 1));
+                if (suggestions.length > 0) {
+                  setShowDropdown(true);
+                  setSelIdx(i => Math.min(i + 1, suggestions.length - 1));
+                } else {
+                  focusCartFromSearch();
+                }
                 return;
               }
               if (e.key === "ArrowUp" && suggestions.length > 0) {
@@ -398,7 +421,7 @@ export default function PosPage() {
                 }
                 if (suggestions.length > 0) {
                   const chosen = suggestions[Math.min(selIdx, suggestions.length - 1)];
-                  if (tryAddProduct(chosen, true)) {
+                  if (tryAddProduct(chosen)) {
                     setSearch("");
                     setShowDropdown(false);
                     setSelIdx(0);
@@ -423,7 +446,7 @@ export default function PosPage() {
               boxShadow: "0 8px 24px rgba(0,0,0,0.1)", marginTop: "4px", maxHeight: "220px", overflowY: "auto"
             }}>
               {suggestions.map((p, i) => (
-                <button key={p.id} onMouseDown={() => { if (tryAddProduct(p, true)) { setSearch(""); setShowDropdown(false); setSelIdx(0); } }}
+                <button key={p.id} onMouseDown={(e) => { e.preventDefault(); if (tryAddProduct(p)) { setSearch(""); setShowDropdown(false); setSelIdx(0); searchRef.current?.focus(); } }}
                   onMouseEnter={() => setSelIdx(i)}
                   style={{
                     width: "100%", padding: "0.6rem 0.875rem",

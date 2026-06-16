@@ -7,6 +7,7 @@ import { isOffline, offlineAwareAwait } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDateTime } from "@/lib/utils/date";
 import { Plus, X, Trash2, Receipt } from "lucide-react";
+import Toast from "@/components/ui/Toast";
 import type { Expense } from "@/types/expense";
 
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {
@@ -27,6 +28,8 @@ export default function ExpensesPanel() {
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
+  const [msg, setMsg] = useState("");
+  const showMsg = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 3000); };
 
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState<number | "">("");
@@ -66,6 +69,7 @@ export default function ExpensesPanel() {
 
   return (
     <div>
+      <Toast message={msg} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.75rem" }}>
         <div className="stat-card-orange" style={{ flex: 1, minWidth: "200px" }}>
           <p style={{ opacity: 0.85, fontSize: "0.8rem" }}>إجمالي المصاريف المسجلة</p>
@@ -162,13 +166,15 @@ export default function ExpensesPanel() {
               <button onClick={() => setExpenseToDelete(null)} className="btn-secondary" style={{ flex: 1, justifyContent: "center" }}>إلغاء</button>
               <button
                 onClick={async () => {
-                  if (!storeId) return;
                   const exp = expenseToDelete;
-                  setExpenseToDelete(null);
+                  setExpenseToDelete(null); // أغلق النافذة دائماً أولاً حتى لا تَعلق
+                  if (!storeId || !exp) return;
                   try {
-                    await deleteExpense(storeId, exp.id);
+                    await offlineAwareAwait(deleteExpense(storeId, exp.id));
+                    showMsg("✅ تم حذف المصروف");
                   } catch (e) {
-                    alert("خطأ أثناء الحذف: " + e);
+                    console.error("delete expense error:", e);
+                    showMsg("⚠️ خطأ أثناء حذف المصروف");
                   }
                 }}
                 className="btn-danger"

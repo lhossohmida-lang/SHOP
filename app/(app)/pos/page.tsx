@@ -262,7 +262,7 @@ export default function PosPage() {
             type: "purchase",
             amount: total, balanceBefore, balanceAfter,
             saleId: actualSaleId, createdBy: appUser!.uid,
-          }).catch((e) => console.error("addCreditTransaction failed:", e));
+          }); // fire-and-forget — يُطبَّق فوراً على الكاش المحلي
           updateCreditCustomer(storeId, creditCustomer.id, {
             totalDebt: balanceAfter, lastTransactionAt: new Date(),
           });

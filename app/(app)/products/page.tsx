@@ -11,7 +11,7 @@ import { printProductLabel, printProductLabelsBatch } from "@/lib/utils/print";
 import { ProductForm } from "@/components/products/ProductForm";
 import QuickEditPanel from "@/components/products/QuickEditPanel";
 import type { ProductFormData, Product } from "@/types/product";
-import { Plus, Search, Edit2, Trash2, Package, Printer, CheckSquare, Square, X, Check } from "lucide-react";
+import { Plus, Search, Edit2, Trash2, Package, Printer, CheckSquare, Square, X, Layers, Check } from "lucide-react";
 
 function getDuplicateProductError(
   products: Product[],
@@ -52,9 +52,11 @@ export default function ProductsPage() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [toast, setToast] = useState("");
-  // لوحة "منتجات محدّدة للتعديل": معرّفات المنتجات المضافة + إظهار قائمة نتائج البحث.
+  // لوحة "منتجات محدّدة للتعديل": معرّفات المنتجات المضافة.
   const [editIds, setEditIds] = useState<string[]>([]);
-  const [showEditDropdown, setShowEditDropdown] = useState(false);
+  // لوحة البحث المتعدد (تفتح/تغلق بالزر)
+  const [showMultiSearch, setShowMultiSearch] = useState(false);
+  const [multiSearchQuery, setMultiSearchQuery] = useState("");
 
   const showMsg = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
@@ -88,7 +90,7 @@ export default function ProductsPage() {
   );
   const toggleEdit = (id: string) =>
     setEditIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  const handleQuickSave = async (id: string, data: { sellingPrice: number; stock: number }) => {
+  const handleQuickSave = async (id: string, data: { sellingPrice: number; purchasePrice?: number; stock: number }) => {
     if (!storeId) return;
     await offlineAwareAwait(updateProduct(storeId, id, data));
   };
@@ -252,6 +254,13 @@ export default function ProductsPage() {
         </div>
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
           <button
+            onClick={() => { setShowMultiSearch((v) => !v); setMultiSearchQuery(""); }}
+            className="btn-secondary"
+            style={showMultiSearch ? { background: "#f0fdf4", borderColor: "#49a35c", color: "#26683a" } : undefined}
+          >
+            <Layers size={18} /> البحث المتعدد
+          </button>
+          <button
             onClick={toggleSelectionMode}
             className={selectionMode ? "btn-secondary" : "btn-secondary"}
             style={selectionMode ? { background: "#f0fdf4", borderColor: "#49a35c", color: "#26683a" } : undefined}
@@ -298,6 +307,104 @@ export default function ProductsPage() {
         </div>
       )}
 
+      {showMultiSearch && (() => {
+        const q = multiSearchQuery.toLowerCase().trim();
+        const multiResults = products.filter((p) =>
+          !q ||
+          p.nameAr.includes(multiSearchQuery.trim()) ||
+          p.name.toLowerCase().includes(q) ||
+          productMatchesBarcodeSearch(p, multiSearchQuery.trim())
+        ).slice(0, 15);
+        return (
+          <div style={{
+            border: "1px solid #c5e5b8", borderRadius: "0.75rem", background: "white",
+            marginBottom: "1rem", overflow: "hidden", boxShadow: "0 4px 16px rgba(38,104,58,0.12)",
+          }}>
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "0.6rem 0.85rem", background: "#f1f8ee", borderBottom: "1px solid #e5efe0",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "#26683a", fontWeight: 700, fontSize: "0.85rem" }}>
+                <Layers size={15} /> البحث المتعدد — ابحث وأضف منتجات للتعديل السريع
+              </div>
+              <button
+                onClick={() => { setShowMultiSearch(false); setMultiSearchQuery(""); }}
+                style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", display: "flex", alignItems: "center" }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div style={{ padding: "0.75rem" }}>
+              <div style={{ position: "relative" }}>
+                <Search size={16} style={{ position: "absolute", right: "0.75rem", top: "50%", transform: "translateY(-50%)", color: "#9ca3af" }} />
+                <input
+                  autoFocus
+                  className="input-field"
+                  style={{ paddingRight: "2.25rem" }}
+                  placeholder="ابحث عن منتج بالاسم أو الباركود..."
+                  value={multiSearchQuery}
+                  onChange={(e) => setMultiSearchQuery(e.target.value)}
+                  autoComplete="off"
+                />
+              </div>
+              {multiResults.length > 0 && (
+                <div style={{ marginTop: "0.5rem", maxHeight: "280px", overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: "0.5rem" }}>
+                  {multiResults.map((p) => {
+                    const added = editIds.includes(p.id);
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => toggleEdit(p.id)}
+                        style={{
+                          width: "100%", padding: "0.55rem 0.875rem", background: added ? "#f1f8ee" : "white",
+                          border: "none", borderBottom: "1px solid #f3f4f6", textAlign: "right", cursor: "pointer",
+                          display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.85rem",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
+                          <span style={{
+                            width: "20px", height: "20px", borderRadius: "5px", flexShrink: 0,
+                            border: added ? "none" : "1px solid #c5e5b8", background: added ? "#26683a" : "white",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                          }}>
+                            {added ? <Check size={13} color="white" /> : <Plus size={13} color="#49a35c" />}
+                          </span>
+                          <span style={{ fontWeight: 600, color: "#17231c", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {p.nameAr || p.name}
+                          </span>
+                          <span style={{ fontSize: "0.75rem", color: "#9ca3af", flexShrink: 0 }}>{p.category}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexShrink: 0 }}>
+                          <span style={{ color: "#26683a", fontWeight: 700, fontSize: "0.82rem" }}>{p.sellingPrice} د.ج</span>
+                          <span style={{ color: "#6b7280", fontSize: "0.78rem" }}>مخزون: {p.stock}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {multiSearchQuery.trim() && multiResults.length === 0 && (
+                <div style={{ textAlign: "center", padding: "1rem", color: "#9ca3af", fontSize: "0.85rem" }}>لا توجد نتائج</div>
+              )}
+              {editIds.length > 0 && (
+                <button
+                  onClick={() => { setShowMultiSearch(false); setMultiSearchQuery(""); }}
+                  style={{
+                    marginTop: "0.65rem", width: "100%",
+                    padding: "0.6rem 1rem", borderRadius: "0.625rem", border: "none",
+                    background: "#26683a", color: "white", cursor: "pointer",
+                    fontWeight: 700, fontSize: "0.9rem", display: "flex", alignItems: "center",
+                    justifyContent: "center", gap: "0.4rem",
+                  }}
+                >
+                  <Check size={16} /> تأكيد — تعديل {editIds.length} منتج
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       <div style={{ position: "relative", marginBottom: "1rem" }}>
         <Search
           size={18}
@@ -311,9 +418,7 @@ export default function ProductsPage() {
           value={search}
           autoFocus
           autoComplete="off"
-          onFocus={() => setShowEditDropdown(true)}
-          onBlur={() => setTimeout(() => setShowEditDropdown(false), 150)}
-          onChange={(e) => { setSearch(normalizeDigits(e.target.value)); setShowEditDropdown(true); }}
+          onChange={(e) => { setSearch(normalizeDigits(e.target.value)); }}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               // حوّل رموز لوحة المفاتيح الفرنسية/العربية إلى أرقام لاكتشاف الباركود الممسوح
@@ -326,39 +431,7 @@ export default function ProductsPage() {
             }
           }}
         />
-        {/* قائمة نتائج البحث: انقر منتجاً لإضافته/إزالته من لوحة التعديل */}
-        {search.trim() && showEditDropdown && filtered.length > 0 && (
-          <div style={{
-            position: "absolute", top: "100%", right: 0, left: 0, zIndex: 50,
-            background: "white", border: "1px solid #e5e7eb", borderRadius: "0.625rem",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.1)", marginTop: "4px", maxHeight: "260px", overflowY: "auto",
-          }}>
-            {filtered.slice(0, 10).map((p) => {
-              const added = editIds.includes(p.id);
-              return (
-                <button
-                  key={p.id}
-                  onMouseDown={(e) => { e.preventDefault(); toggleEdit(p.id); }}
-                  style={{
-                    width: "100%", padding: "0.55rem 0.875rem", background: added ? "#f1f8ee" : "none",
-                    border: "none", borderBottom: "1px solid #f3f4f6", textAlign: "right", cursor: "pointer",
-                    display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.85rem",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
-                    <span style={{
-                      width: "20px", height: "20px", borderRadius: "5px", flexShrink: 0,
-                      border: added ? "none" : "1px solid #c5e5b8", background: added ? "#26683a" : "white",
-                      color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.7rem",
-                    }}>{added ? <Check size={13} /> : <Plus size={13} color="#49a35c" />}</span>
-                    <span style={{ fontWeight: 600, color: "#17231c", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.nameAr || p.name}</span>
-                  </div>
-                  <span style={{ color: "#26683a", fontWeight: 700, whiteSpace: "nowrap" }}>{formatCurrency(p.sellingPrice)}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+
       </div>
 
       <QuickEditPanel
@@ -366,6 +439,7 @@ export default function ProductsPage() {
         onRemove={(id) => setEditIds((prev) => prev.filter((x) => x !== id))}
         onClear={() => setEditIds([])}
         onSave={handleQuickSave}
+        mode="full"
       />
 
       <div className="table-container">

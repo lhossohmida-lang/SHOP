@@ -7,7 +7,7 @@ import { getPosShortcuts, savePosShortcuts } from "@/lib/firestore/shortcuts";
 import { offlineAwareAwait } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
 import { productMatchesBarcodeSearch, normalizeScannedDigits } from "@/lib/utils/barcode";
-import { Search, AlertTriangle, Edit2, Zap, X, Check, Printer, Plus } from "lucide-react";
+import { Search, AlertTriangle, Edit2, Zap, X, Check, Printer, Plus, Layers } from "lucide-react";
 import QuickEditPanel from "@/components/products/QuickEditPanel";
 import Toast from "@/components/ui/Toast";
 import type { Product } from "@/types/product";
@@ -57,6 +57,9 @@ export default function InventoryPage() {
   // لوحة "منتجات محدّدة للتعديل"
   const [editIds, setEditIds] = useState<string[]>([]);
   const [showEditDropdown, setShowEditDropdown] = useState(false);
+  // لوحة البحث المتعدد
+  const [showMultiSearch, setShowMultiSearch] = useState(false);
+  const [multiSearchQuery, setMultiSearchQuery] = useState("");
   const [msg, setMsg] = useState("");
   const showMsg = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 3000); };
 
@@ -88,9 +91,10 @@ export default function InventoryPage() {
   );
   const toggleEdit = (id: string) =>
     setEditIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  const handleQuickSave = async (id: string, data: { sellingPrice: number; stock: number }) => {
+  const handleQuickSave = async (id: string, data: { sellingPrice: number; purchasePrice?: number; stock: number }) => {
     if (!storeId) return;
-    await offlineAwareAwait(updateProduct(storeId, id, data));
+    // في المخزون نحفظ المخزون فقط
+    await offlineAwareAwait(updateProduct(storeId, id, { stock: data.stock }));
   };
 
   const totalValue = products.reduce((s, p) => s + p.stock * p.purchasePrice, 0);
@@ -240,22 +244,38 @@ export default function InventoryPage() {
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#17231c" }}>إدارة المخزون</h1>
           <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>مراقبة وتحديث مستويات المخزون</p>
         </div>
-        <button
-          onClick={openShortcuts}
-          style={{
-            display: "flex", alignItems: "center", gap: "0.5rem",
-            padding: "0.6rem 1.1rem", borderRadius: "0.625rem",
-            background: "linear-gradient(135deg, #f59e0b, #d97706)",
-            color: "white", border: "none", cursor: "pointer",
-            fontWeight: 700, fontSize: "0.875rem",
-            boxShadow: "0 2px 8px rgba(245,158,11,0.3)",
-            transition: "all 0.15s",
-          }}
-          onMouseEnter={e => (e.currentTarget.style.transform = "translateY(-1px)")}
-          onMouseLeave={e => (e.currentTarget.style.transform = "")}
-        >
-          <Zap size={17} /> ⚡ الاختصارات
-        </button>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <button
+            onClick={() => { setShowMultiSearch((v) => !v); setMultiSearchQuery(""); }}
+            style={{
+              display: "flex", alignItems: "center", gap: "0.5rem",
+              padding: "0.6rem 1.1rem", borderRadius: "0.625rem",
+              background: showMultiSearch ? "#f0fdf4" : "white",
+              color: showMultiSearch ? "#26683a" : "#374151",
+              border: showMultiSearch ? "1.5px solid #49a35c" : "1.5px solid #e5e7eb",
+              cursor: "pointer", fontWeight: 700, fontSize: "0.875rem",
+              transition: "all 0.15s",
+            }}
+          >
+            <Layers size={17} /> البحث المتعدد
+          </button>
+          <button
+            onClick={openShortcuts}
+            style={{
+              display: "flex", alignItems: "center", gap: "0.5rem",
+              padding: "0.6rem 1.1rem", borderRadius: "0.625rem",
+              background: "linear-gradient(135deg, #f59e0b, #d97706)",
+              color: "white", border: "none", cursor: "pointer",
+              fontWeight: 700, fontSize: "0.875rem",
+              boxShadow: "0 2px 8px rgba(245,158,11,0.3)",
+              transition: "all 0.15s",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.transform = "translateY(-1px)")}
+            onMouseLeave={e => (e.currentTarget.style.transform = "")}
+          >
+            <Zap size={17} /> ⚡ الاختصارات
+          </button>
+        </div>
       </div>
 
       {/* Stats — out & low cards are clickable */}
@@ -326,6 +346,103 @@ export default function InventoryPage() {
         </button>
       </div>
 
+      {showMultiSearch && (() => {
+        const q = multiSearchQuery.trim();
+        const multiResults = products.filter((p) =>
+          !q ||
+          p.nameAr.includes(q) ||
+          p.name.toLowerCase().includes(q.toLowerCase()) ||
+          productMatchesBarcodeSearch(p, q)
+        ).slice(0, 15);
+        return (
+          <div style={{
+            border: "1px solid #c5e5b8", borderRadius: "0.75rem", background: "white",
+            marginBottom: "1rem", overflow: "hidden", boxShadow: "0 4px 16px rgba(38,104,58,0.12)",
+          }}>
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "0.6rem 0.85rem", background: "#f1f8ee", borderBottom: "1px solid #e5efe0",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "#26683a", fontWeight: 700, fontSize: "0.85rem" }}>
+                <Layers size={15} /> البحث المتعدد — ابحث وأضف منتجات لتعديل كميتها
+              </div>
+              <button
+                onClick={() => { setShowMultiSearch(false); setMultiSearchQuery(""); }}
+                style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", display: "flex", alignItems: "center" }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div style={{ padding: "0.75rem" }}>
+              <div style={{ position: "relative" }}>
+                <Search size={16} style={{ position: "absolute", right: "0.75rem", top: "50%", transform: "translateY(-50%)", color: "#9ca3af" }} />
+                <input
+                  autoFocus
+                  className="input-field"
+                  style={{ paddingRight: "2.25rem" }}
+                  placeholder="ابحث عن منتج بالاسم أو الباركود..."
+                  value={multiSearchQuery}
+                  onChange={(e) => setMultiSearchQuery(e.target.value)}
+                  autoComplete="off"
+                />
+              </div>
+              {multiResults.length > 0 && (
+                <div style={{ marginTop: "0.5rem", maxHeight: "280px", overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: "0.5rem" }}>
+                  {multiResults.map((p) => {
+                    const added = editIds.includes(p.id);
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => toggleEdit(p.id)}
+                        style={{
+                          width: "100%", padding: "0.55rem 0.875rem", background: added ? "#f1f8ee" : "white",
+                          border: "none", borderBottom: "1px solid #f3f4f6", textAlign: "right", cursor: "pointer",
+                          display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.85rem",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
+                          <span style={{
+                            width: "20px", height: "20px", borderRadius: "5px", flexShrink: 0,
+                            border: added ? "none" : "1px solid #c5e5b8", background: added ? "#26683a" : "white",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                          }}>
+                            {added ? <Check size={13} color="white" /> : <Plus size={13} color="#49a35c" />}
+                          </span>
+                          <span style={{ fontWeight: 600, color: "#17231c", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {p.nameAr || p.name}
+                          </span>
+                          <span style={{ fontSize: "0.75rem", color: "#9ca3af", flexShrink: 0 }}>{p.category}</span>
+                        </div>
+                        <span style={{ color: "#26683a", fontWeight: 700, whiteSpace: "nowrap" }}>
+                          مخزون: {p.stock} {p.unit}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {q && multiResults.length === 0 && (
+                <div style={{ textAlign: "center", padding: "1rem", color: "#9ca3af", fontSize: "0.85rem" }}>لا توجد نتائج</div>
+              )}
+              {editIds.length > 0 && (
+                <button
+                  onClick={() => { setShowMultiSearch(false); setMultiSearchQuery(""); }}
+                  style={{
+                    marginTop: "0.65rem", width: "100%",
+                    padding: "0.6rem 1rem", borderRadius: "0.625rem", border: "none",
+                    background: "#26683a", color: "white", cursor: "pointer",
+                    fontWeight: 700, fontSize: "0.9rem", display: "flex", alignItems: "center",
+                    justifyContent: "center", gap: "0.4rem",
+                  }}
+                >
+                  <Check size={16} /> تأكيد — تعديل كمية {editIds.length} منتج
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Filters */}
       <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap" }}>
         <div style={{ position: "relative", flex: "1 1 200px" }}>
@@ -383,6 +500,7 @@ export default function InventoryPage() {
         onRemove={(id) => setEditIds((prev) => prev.filter((x) => x !== id))}
         onClear={() => setEditIds([])}
         onSave={handleQuickSave}
+        mode="stock"
       />
 
       {/* Table */}

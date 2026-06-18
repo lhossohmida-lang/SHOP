@@ -4,35 +4,46 @@ import { X, Check, Pencil } from "lucide-react";
 import type { Product } from "@/types/product";
 
 interface Props {
-  // المنتجات المحدَّدة للتعديل (بترتيب الإضافة).
   products: Product[];
   onRemove: (id: string) => void;
   onClear: () => void;
-  onSave: (id: string, data: { sellingPrice: number; stock: number }) => Promise<void> | void;
+  onSave: (id: string, data: { sellingPrice: number; purchasePrice?: number; stock: number }) => Promise<void> | void;
+  // "full" = منتجات (سعر بيع + سعر شراء + مخزون)، "stock" = مخزون فقط (المخزون)
+  mode?: "full" | "stock";
 }
 
-// صفّ تعديل واحد بحالة محلية للسعر والمخزون + زر حفظ يظهر عند التغيير.
 function EditRow({
   p,
   onRemove,
   onSave,
+  mode,
 }: {
   p: Product;
   onRemove: (id: string) => void;
   onSave: Props["onSave"];
+  mode: "full" | "stock";
 }) {
   const [price, setPrice] = useState(String(p.sellingPrice));
+  const [purchasePrice, setPurchasePrice] = useState(String(p.purchasePrice));
   const [stock, setStock] = useState(String(p.stock));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const dirty = (Number(price) || 0) !== p.sellingPrice || (Number(stock) || 0) !== p.stock;
+  const dirty =
+    (mode === "full"
+      ? (Number(price) || 0) !== p.sellingPrice || (Number(purchasePrice) || 0) !== p.purchasePrice
+      : false) ||
+    (Number(stock) || 0) !== p.stock;
 
   const save = async () => {
     if (!dirty || saving) return;
     setSaving(true);
     try {
-      await onSave(p.id, { sellingPrice: Number(price) || 0, stock: Number(stock) || 0 });
+      await onSave(p.id, {
+        sellingPrice: Number(price) || 0,
+        purchasePrice: mode === "full" ? Number(purchasePrice) || 0 : undefined,
+        stock: Number(stock) || 0,
+      });
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
     } finally {
@@ -45,9 +56,11 @@ function EditRow({
     padding: "0.35rem 0.5rem", fontSize: "0.85rem", direction: "ltr", textAlign: "center",
   };
 
+  const cols = mode === "full" ? "1fr 105px 105px 90px auto auto" : "1fr 120px auto auto";
+
   return (
     <div style={{
-      display: "grid", gridTemplateColumns: "1fr 110px 90px auto auto", gap: "0.5rem",
+      display: "grid", gridTemplateColumns: cols, gap: "0.5rem",
       alignItems: "center", padding: "0.6rem 0.75rem", borderBottom: "1px solid #f3f4f6",
     }}>
       <div style={{ minWidth: 0 }}>
@@ -57,15 +70,29 @@ function EditRow({
         <div style={{ fontSize: "0.7rem", color: "#9ca3af" }}>{p.category}</div>
       </div>
 
-      <div>
-        <label style={{ fontSize: "0.62rem", color: "#6b7280", display: "block", marginBottom: "1px" }}>سعر البيع (د.ج)</label>
-        <input
-          type="text" inputMode="decimal" value={price}
-          onChange={(e) => setPrice(e.target.value.replace(/[^\d.]/g, ""))}
-          onKeyDown={(e) => { if (e.key === "Enter") save(); }}
-          style={inputStyle}
-        />
-      </div>
+      {mode === "full" && (
+        <div>
+          <label style={{ fontSize: "0.62rem", color: "#6b7280", display: "block", marginBottom: "1px" }}>سعر الشراء</label>
+          <input
+            type="text" inputMode="decimal" value={purchasePrice}
+            onChange={(e) => setPurchasePrice(e.target.value.replace(/[^\d.]/g, ""))}
+            onKeyDown={(e) => { if (e.key === "Enter") save(); }}
+            style={inputStyle}
+          />
+        </div>
+      )}
+
+      {mode === "full" && (
+        <div>
+          <label style={{ fontSize: "0.62rem", color: "#6b7280", display: "block", marginBottom: "1px" }}>سعر البيع</label>
+          <input
+            type="text" inputMode="decimal" value={price}
+            onChange={(e) => setPrice(e.target.value.replace(/[^\d.]/g, ""))}
+            onKeyDown={(e) => { if (e.key === "Enter") save(); }}
+            style={inputStyle}
+          />
+        </div>
+      )}
 
       <div>
         <label style={{ fontSize: "0.62rem", color: "#6b7280", display: "block", marginBottom: "1px" }}>المخزون</label>
@@ -107,7 +134,7 @@ function EditRow({
   );
 }
 
-export default function QuickEditPanel({ products, onRemove, onClear, onSave }: Props) {
+export default function QuickEditPanel({ products, onRemove, onClear, onSave, mode = "full" }: Props) {
   if (products.length === 0) return null;
 
   return (
@@ -131,7 +158,7 @@ export default function QuickEditPanel({ products, onRemove, onClear, onSave }: 
       </div>
       <div>
         {products.map((p) => (
-          <EditRow key={p.id} p={p} onRemove={onRemove} onSave={onSave} />
+          <EditRow key={p.id} p={p} onRemove={onRemove} onSave={onSave} mode={mode} />
         ))}
       </div>
     </div>

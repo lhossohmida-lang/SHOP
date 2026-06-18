@@ -292,10 +292,10 @@ export function printReceipt(sale: Sale, storeName = STORE_NAME): void {
     .map(
       (item) =>
         `<tr>
-          <td style="padding:2px 4px;font-size:9px;">${item.productName}</td>
-          <td style="padding:2px 4px;text-align:center;font-size:9px;">${item.quantity}</td>
-          <td style="padding:2px 4px;text-align:left;font-size:9px;">${formatCurrency(item.unitPrice)}</td>
-          <td style="padding:2px 4px;text-align:left;font-size:9px;">${formatCurrency(item.totalPrice)}</td>
+          <td style="padding:3px 4px;font-size:13px;font-weight:bold;">${item.productName}</td>
+          <td style="padding:3px 4px;text-align:center;font-size:13px;font-weight:bold;">${item.quantity}</td>
+          <td style="padding:3px 4px;text-align:left;font-size:13px;font-weight:bold;">${formatCurrency(item.unitPrice)}</td>
+          <td style="padding:3px 4px;text-align:left;font-size:13px;font-weight:bold;">${formatCurrency(item.totalPrice)}</td>
         </tr>`
     )
     .join("");
@@ -312,24 +312,23 @@ export function printReceipt(sale: Sale, storeName = STORE_NAME): void {
   <meta charset="UTF-8"/>
   <title>وصل بيع ${sale.receiptNumber}</title>
   <style>
-    @page { size: ${RECEIPT_PAGE}; margin: 2mm; }
+    @page { size: 88mm auto; margin: 2mm; }
     * { box-sizing: border-box; }
     html, body {
       width: 88mm;
-      max-height: 100mm;
-      overflow: hidden;
     }
-    body { font-family: Tahoma, Arial, sans-serif; font-size: 9px; margin: 0; padding: 2mm; direction: rtl; }
-    .header { text-align: center; border-bottom: 1px dashed #333; padding-bottom: 4px; margin-bottom: 4px; }
-    .header h2 { margin: 0; font-size: 11px; }
-    .meta { font-size: 8px; color: #555; margin-bottom: 4px; }
+    body { font-family: Tahoma, Arial, sans-serif; font-size: 13px; font-weight: bold; margin: 0; padding: 2mm; direction: rtl; color: #000; }
+    .header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 5px; margin-bottom: 5px; }
+    .header h2 { margin: 0; font-size: 18px; font-weight: 900; }
+    .meta { font-size: 12px; color: #000; margin-bottom: 5px; font-weight: bold; }
     table { width: 100%; border-collapse: collapse; }
     thead tr { background: #f1f8ee; }
-    th { padding: 2px 4px; font-size: 8px; text-align: right; border-bottom: 1px solid #ccc; }
-    .totals { margin-top: 4px; border-top: 1px dashed #333; padding-top: 4px; }
-    .totals tr td:first-child { font-weight: bold; }
-    .total-row td { font-size: 10px; font-weight: bold; color: #26683a; }
-    .footer { text-align: center; margin-top: 4px; font-size: 7px; color: #888; border-top: 1px dashed #ccc; padding-top: 4px; }
+    th { padding: 4px 4px; font-size: 12px; text-align: right; border-bottom: 2px solid #000; font-weight: 900; }
+    .totals { margin-top: 5px; border-top: 2px dashed #000; padding-top: 5px; }
+    .totals tr td { font-size: 13px; }
+    .totals tr td:first-child { font-weight: 900; }
+    .total-row td { font-size: 16px; font-weight: 900; color: #000; }
+    .footer { text-align: center; margin-top: 5px; font-size: 11px; color: #333; border-top: 1px dashed #999; padding-top: 4px; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -383,23 +382,23 @@ export function printCustomerStatement(
 
       let itemsStr = "";
       if (tx.saleItems && tx.saleItems.length > 0) {
-        itemsStr = `<div style="font-size:7px;color:#555;margin-top:2px;padding-right:4px;border-right:1px solid #ccc;">
+        itemsStr = `<div style="font-size:10px;color:#333;margin-top:2px;padding-right:4px;border-right:2px solid #999;font-weight:bold;">
           ${tx.saleItems.map(i => `${i.productName} (${i.quantity} × ${formatCurrency(i.unitPrice)})`).join("<br/>")}
         </div>`;
       }
 
       return `
-        <tr style="border-bottom:1px solid #eee;">
-          <td style="padding:3px;font-size:7px;">${formatDateTime(tx.createdAt)}</td>
-          <td style="padding:3px;font-size:7px;">
+        <tr style="border-bottom:1px solid #ccc;">
+          <td style="padding:4px;font-size:11px;font-weight:bold;">${formatDateTime(tx.createdAt)}</td>
+          <td style="padding:4px;font-size:11px;font-weight:bold;">
             <strong>${typeStr}</strong>
-            ${tx.note ? `<br/><small style="color:#666;">${tx.note}</small>` : ""}
+            ${tx.note ? `<br/><small style="color:#444;font-size:10px;">${tx.note}</small>` : ""}
             ${itemsStr}
           </td>
-          <td style="padding:3px;font-size:7px;text-align:left;color:${color};font-weight:bold;">
+          <td style="padding:4px;font-size:12px;text-align:left;color:${color};font-weight:900;">
             ${sign}${formatCurrency(tx.amount)}
           </td>
-          <td style="padding:3px;font-size:7px;text-align:left;font-weight:bold;">
+          <td style="padding:4px;font-size:12px;text-align:left;font-weight:900;">
             ${formatCurrency(tx.balanceAfter)}
           </td>
         </tr>
@@ -413,24 +412,22 @@ export function printCustomerStatement(
   <meta charset="UTF-8"/>
   <title>كشف حساب عميل: ${customer.name}</title>
   <style>
-    @page { size: ${RECEIPT_PAGE}; margin: 2mm; }
+    @page { size: 88mm auto; margin: 2mm; }
     * { box-sizing: border-box; }
     html, body {
       width: 88mm;
-      max-height: 100mm;
-      overflow: hidden;
     }
-    body { font-family: Tahoma, Arial, sans-serif; font-size: 9px; margin: 0; padding: 2mm; direction: rtl; color: #17231c; }
-    .header { text-align: center; border-bottom: 1px solid #26683a; padding-bottom: 4px; margin-bottom: 6px; }
-    .header h2 { margin: 0; font-size: 11px; color: #26683a; }
-    .customer-info { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 6px; background: #f8fdf5; padding: 4px; border-radius: 4px; border: 1px solid #c5e5b8; font-size: 8px; }
-    .customer-info div { line-height: 1.4; }
-    .title-tx { font-size: 9px; font-weight: bold; margin-bottom: 4px; color: #26683a; }
+    body { font-family: Tahoma, Arial, sans-serif; font-size: 12px; font-weight: bold; margin: 0; padding: 2mm; direction: rtl; color: #000; }
+    .header { text-align: center; border-bottom: 2px solid #26683a; padding-bottom: 5px; margin-bottom: 7px; }
+    .header h2 { margin: 0; font-size: 17px; font-weight: 900; color: #26683a; }
+    .customer-info { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 7px; background: #f8fdf5; padding: 5px; border-radius: 4px; border: 1px solid #c5e5b8; font-size: 11px; }
+    .customer-info div { line-height: 1.5; }
+    .title-tx { font-size: 13px; font-weight: 900; margin-bottom: 5px; color: #26683a; }
     table { width: 100%; border-collapse: collapse; margin-top: 4px; }
     thead tr { background: #26683a; color: white; }
-    th { padding: 3px 2px; font-size: 7px; text-align: right; }
-    td { padding: 3px 2px; font-size: 7px; }
-    .footer { text-align: center; margin-top: 6px; font-size: 7px; color: #888; border-top: 1px dashed #ccc; padding-top: 4px; }
+    th { padding: 4px 3px; font-size: 11px; text-align: right; font-weight: 900; }
+    td { padding: 4px 3px; font-size: 11px; }
+    .footer { text-align: center; margin-top: 7px; font-size: 10px; color: #555; border-top: 1px dashed #999; padding-top: 4px; font-weight: bold; }
     @media print {
       body { padding: 0; }
       .customer-info { background: none; border: 1px solid #ccc; }
@@ -440,8 +437,8 @@ export function printCustomerStatement(
 <body>
   <div class="header">
     <h2>${storeName}</h2>
-    <div style="font-size: 9px; margin-top: 2px; font-weight: bold;">كشف حساب عميل (كريدي)</div>
-    <div style="font-size: 8px; color: #666; margin-top: 1px;">تاريخ الاستخراج: ${formatDateTime(new Date())}</div>
+    <div style="font-size: 13px; margin-top: 2px; font-weight: 900;">كشف حساب عميل (كريدي)</div>
+    <div style="font-size: 11px; color: #333; margin-top: 1px; font-weight: bold;">تاريخ الاستخراج: ${formatDateTime(new Date())}</div>
   </div>
 
   <div class="customer-info">
@@ -451,7 +448,7 @@ export function printCustomerStatement(
       <strong>العنوان:</strong> ${customer.address || "—"}
     </div>
     <div style="text-align: left;">
-      <span style="font-size: 9px;"><strong>الدين الحالي:</strong> <span style="color:#dc2626;font-weight:bold;">${formatCurrency(customer.totalDebt)}</span></span><br/>
+      <span style="font-size: 13px;"><strong>الدين الحالي:</strong> <span style="color:#dc2626;font-weight:900;">${formatCurrency(customer.totalDebt)}</span></span><br/>
       <strong>حد الائتمان:</strong> ${formatCurrency(customer.creditLimit)}<br/>
       ${customer.dueDate ? `<strong>تاريخ الاستحقاق:</strong> <span style="color:#dc2626;font-weight:bold;">${customer.dueDate}</span>` : ""}
     </div>

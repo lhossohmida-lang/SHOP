@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getSalesByDateRange, returnSaleItems, deleteSaleAndRestoreStock } from "@/lib/firestore/sales";
 import { getExpensesByDateRange } from "@/lib/firestore/expenses";
@@ -9,10 +9,14 @@ import { BarChart3, Download, Search, Trash2, Receipt } from "lucide-react";
 import type { Sale } from "@/types/sale";
 import type { Expense } from "@/types/expense";
 import PasswordGate from "@/components/layout/PasswordGate";
+import { useProducts } from "@/hooks/useProducts";
+import { useAjal } from "@/hooks/useAjal";
 
 export default function ReportsPage() {
   const { appUser } = useAuth();
   const storeId = appUser?.storeId;
+  const { products: allProducts } = useProducts(storeId);
+  const { totalDebt: ajalTotalDebt } = useAjal(storeId);
 
   const today = new Date().toISOString().slice(0, 10);
   const [startDate, setStartDate] = useState(today);
@@ -143,10 +147,35 @@ export default function ReportsPage() {
   const filtered = sales.filter(s => payFilter === "الكل" || s.paymentMethod === payFilter);
   const totalAmount = filtered.reduce((s, sale) => s + sale.total, 0);
   const cashTotal = filtered.filter(s => s.paymentMethod === "cash").reduce((s, sale) => s + sale.total, 0);
-  const cardTotal = filtered.filter(s => s.paymentMethod === "card").reduce((s, sale) => s + sale.total, 0);
-  const creditTotal = filtered.filter(s => s.paymentMethod === "credit").reduce((s, sale) => s + sale.total, 0);
   const expensesTotal = expenses.reduce((s, e) => s + e.amount, 0);
   const netTotal = totalAmount - expensesTotal;
+
+  // رأس المال (تكلفة الشراء للأصناف المباعة) + الفائدة (هامش الربح)
+  // نستخدم سعر الشراء الحالي للمنتجات تقريباً (أدق ما يمكن بدون تخزين السعر في كل فاتورة)
+  const productPriceMap = useMemo(
+    () => new Map(allProducts.map(p => [p.id, p.purchasePrice])),
+    [allProducts]
+  );
+  // رأس المال = تكلفة شراء البضاعة المباعة نقداً/بطاقة فقط (رأس المال المُستردّ فعلاً).
+  // مبيعات الكريدي لا تُحتسب: رأس مالها خرج كبضاعة ولم يرجع (دين)، وفائدتها لا تُسجَّل حتى يُدفع.
+  const capitalTotal = useMemo(() => {
+    return filtered.filter(s => s.paymentMethod !== "credit").reduce((total, sale) =>
+      total + sale.items.reduce((s, item) =>
+        s + (productPriceMap.get(item.productId) || 0) * item.quantity, 0), 0);
+  }, [filtered, productPriceMap]);
+  // تكلفة شراء بضاعة الكريدي (للعرض كملاحظة فقط) — رأس مال خرج ولم يُسترَدّ بعد
+  const creditCapital = useMemo(() => {
+    return filtered.filter(s => s.paymentMethod === "credit").reduce((total, sale) =>
+      total + sale.items.reduce((s, item) =>
+        s + (productPriceMap.get(item.productId) || 0) * item.quantity, 0), 0);
+  }, [filtered, productPriceMap]);
+  // مبيعات غير الكريدي (المحصّلة فعلاً) — الفائدة تُحسب منها فقط
+  const nonCreditTotal = useMemo(
+    () => filtered.filter(s => s.paymentMethod !== "credit").reduce((s, sale) => s + sale.total, 0),
+    [filtered]
+  );
+  // الفائدة = ربح المبيعات المحصّلة فقط؛ مبيعات الكريدي لا تُسجَّل فائدتها حتى يُدفع الدين
+  const grossProfit = nonCreditTotal - capitalTotal;
 
   const exportCSV = () => {
     const salesRows = [
@@ -208,8 +237,6 @@ export default function ReportsPage() {
           {[
             { label: "إجمالي المبيعات", value: formatCurrency(totalAmount), color: "#49a35c", bg: "#f1f8ee" },
             { label: "نقداً", value: formatCurrency(cashTotal), color: "#26683a", bg: "#dff0d6" },
-            { label: "بطاقة", value: formatCurrency(cardTotal), color: "#3b82f6", bg: "#eff6ff" },
-            { label: "آجل", value: formatCurrency(creditTotal), color: "#dc2626", bg: "#fff5f5" },
             { label: "عدد الفواتير", value: String(filtered.length), color: "#6b7280", bg: "#f9fafb" },
             { label: "إجمالي المصاريف", value: formatCurrency(expensesTotal), color: "#d97706", bg: "#fffbeb" },
             { label: "صافي (مبيعات − مصاريف)", value: formatCurrency(netTotal), color: netTotal >= 0 ? "#26683a" : "#dc2626", bg: netTotal >= 0 ? "#f0fdf4" : "#fff5f5" },
@@ -219,6 +246,38 @@ export default function ReportsPage() {
               <div style={{ fontSize: "1.3rem", fontWeight: 700, color: s.color }}>{s.value}</div>
             </div>
           ))}
+
+          {/* رأس المال + الفائدة */}
+          <div className="card-sm" style={{ border: "1px solid #e0d7ff", background: "#f5f3ff", gridColumn: "span 1" }}>
+            <div style={{ fontSize: "0.78rem", color: "#6b7280", marginBottom: "0.4rem", fontWeight: 600 }}>رأس المال + الفائدة</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "0.7rem", color: "#7c3aed" }}>رأس المال</span>
+                <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "#7c3aed" }}>{formatCurrency(capitalTotal)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "0.7rem", color: "#059669" }}>الفائدة</span>
+                <span style={{ fontSize: "0.95rem", fontWeight: 700, color: grossProfit >= 0 ? "#059669" : "#dc2626" }}>{formatCurrency(grossProfit)}</span>
+              </div>
+              {creditCapital > 0 && (
+                <div style={{ fontSize: "0.66rem", color: "#d97706", textAlign: "right", marginTop: "0.1rem" }}>
+                  ـ بضاعة كريدي برأس مال {formatCurrency(creditCapital)} (لم تُحتسب فائدتها)
+                </div>
+              )}
+              {nonCreditTotal > 0 && (
+                <div style={{ fontSize: "0.68rem", color: "#9ca3af", textAlign: "left", marginTop: "0.1rem" }}>
+                  هامش {((grossProfit / nonCreditTotal) * 100).toFixed(1)}%
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* كريديات آجلة */}
+          <div className="card-sm" style={{ border: "1px solid #fde68a", background: "#fffbeb" }}>
+            <div style={{ fontSize: "0.78rem", color: "#6b7280", marginBottom: "0.25rem" }}>كريديات آجلة (إجمالي)</div>
+            <div style={{ fontSize: "1.3rem", fontWeight: 700, color: ajalTotalDebt > 0 ? "#d97706" : "#9ca3af" }}>{formatCurrency(ajalTotalDebt)}</div>
+            <div style={{ fontSize: "0.68rem", color: "#9ca3af", marginTop: "0.15rem" }}>مجموع ديون الآجل المتراكمة</div>
+          </div>
         </div>
       )}
 

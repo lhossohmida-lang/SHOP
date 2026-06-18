@@ -1,3 +1,4 @@
+// كريديات آجلة — نفس منطق الكريديات تماماً لكن في مجموعات Firestore منفصلة
 import {
   collection,
   addDoc,
@@ -10,7 +11,6 @@ import {
   serverTimestamp,
   Timestamp,
   where,
-  getDocs,
   deleteDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -59,25 +59,25 @@ function toTransaction(id: string, data: Record<string, unknown>): CreditTransac
   };
 }
 
-function sortTransactionsNewestFirst(txs: CreditTransaction[]): CreditTransaction[] {
+function sortNewest(txs: CreditTransaction[]): CreditTransaction[] {
   return [...txs].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
-export function creditCustomersCol(storeId: string) {
-  return collection(db, "stores", storeId, "creditCustomers");
+export function ajalCustomersCol(storeId: string) {
+  return collection(db, "stores", storeId, "ajalCustomers");
 }
 
-export function creditTransactionsCol(storeId: string) {
-  return collection(db, "stores", storeId, "creditTransactions");
+export function ajalTransactionsCol(storeId: string) {
+  return collection(db, "stores", storeId, "ajalTransactions");
 }
 
-export async function addCreditCustomer(
+export async function addAjalCustomer(
   storeId: string,
   data: Omit<CreditCustomer, "id" | "createdAt" | "lastTransactionAt" | "storeId">,
   options?: { initialDebtNote?: string; createdBy?: string }
 ): Promise<string> {
   const initialDebt = Math.max(0, data.totalDebt || 0);
-  const ref = await addDoc(creditCustomersCol(storeId), sanitizeFirestoreData({
+  const ref = await addDoc(ajalCustomersCol(storeId), sanitizeFirestoreData({
     ...data,
     address: data.address || "",
     dueDate: data.dueDate || "",
@@ -88,7 +88,7 @@ export async function addCreditCustomer(
   }));
 
   if (initialDebt > 0 && options?.createdBy) {
-    addCreditTransaction(storeId, {
+    addAjalTransaction(storeId, {
       customerId: ref.id,
       customerName: data.name,
       type: "adjustment",
@@ -103,7 +103,7 @@ export async function addCreditCustomer(
   return ref.id;
 }
 
-export function addCustomerDebt(
+export function addAjalDebt(
   storeId: string,
   customer: CreditCustomer,
   amount: number,
@@ -117,8 +117,7 @@ export function addCustomerDebt(
   const balanceBefore = customer.totalDebt;
   const balanceAfter = balanceBefore + debtAmount;
 
-  // كلتا العمليتان fire-and-forget — تُطبَّقان على الكاش المحلي فوراً
-  addCreditTransaction(storeId, {
+  addAjalTransaction(storeId, {
     customerId: customer.id,
     customerName: customer.name,
     type: "adjustment",
@@ -130,84 +129,61 @@ export function addCustomerDebt(
     createdAt,
   });
 
-  updateCreditCustomer(storeId, customer.id, {
+  updateAjalCustomer(storeId, customer.id, {
     totalDebt: balanceAfter,
     lastTransactionAt: createdAt || new Date(),
   });
 }
 
-export function updateCreditCustomer(
+export function updateAjalCustomer(
   storeId: string,
   customerId: string,
   data: Partial<CreditCustomer>
 ): void {
-  // تُطبَّق محلياً فوراً وتتزامن لاحقاً — لا يُوقف التنفيذ أوفلاين
-  updateDoc(doc(creditCustomersCol(storeId), customerId), sanitizeFirestoreData({ ...data }))
-    .catch((e) => console.warn("[updateCreditCustomer] sync pending:", e));
+  updateDoc(doc(ajalCustomersCol(storeId), customerId), sanitizeFirestoreData({ ...data }))
+    .catch((e) => console.warn("[updateAjalCustomer] sync pending:", e));
 }
 
-export async function deleteCreditCustomer(
+export async function deleteAjalCustomer(
   storeId: string,
   customerId: string
 ): Promise<void> {
-  await deleteDoc(doc(creditCustomersCol(storeId), customerId));
+  await deleteDoc(doc(ajalCustomersCol(storeId), customerId));
 }
 
-export function subscribeCreditCustomers(
+export function subscribeAjalCustomers(
   storeId: string,
   callback: (customers: CreditCustomer[]) => void
 ): () => void {
-  const q = query(creditCustomersCol(storeId), orderBy("totalDebt", "desc"));
+  const q = query(ajalCustomersCol(storeId), orderBy("totalDebt", "desc"));
   return onSnapshot(
     q,
     { includeMetadataChanges: false },
-    (snap) => {
-      callback(snap.docs.map((d) => toCustomer(d.id, d.data())));
-    },
-    (err) => {
-      console.warn("[Credits] onSnapshot error (offline or permission):", err.code);
-    }
+    (snap) => { callback(snap.docs.map((d) => toCustomer(d.id, d.data()))); },
+    (err) => { console.warn("[Ajal] onSnapshot error:", err.code); }
   );
 }
 
-export function addCreditTransaction(
+export function addAjalTransaction(
   storeId: string,
   data: Omit<CreditTransaction, "id" | "createdAt" | "storeId"> & { createdAt?: Date }
 ): string {
-  // نُولّد ID محلياً ونكتب بـ setDoc (fire-and-forget) — يُطبَّق على الكاش فوراً دون انتظار الخادم
-  const ref = doc(creditTransactionsCol(storeId));
+  const ref = doc(ajalTransactionsCol(storeId));
   setDoc(ref, sanitizeFirestoreData({
     ...data,
     saleId: data.saleId || "",
     note: data.note || "",
     storeId,
     createdAt: data.createdAt || new Date(),
-  })).catch((e) => console.warn("[addCreditTransaction] sync pending:", e));
+  })).catch((e) => console.warn("[addAjalTransaction] sync pending:", e));
   return ref.id;
 }
 
-export async function getCreditTransactions(
+export async function getAjalTransactions(
   storeId: string,
   customerId: string
 ): Promise<CreditTransaction[]> {
-  const q = query(
-    creditTransactionsCol(storeId),
-    where("customerId", "==", customerId)
-  );
+  const q = query(ajalTransactionsCol(storeId), where("customerId", "==", customerId));
   const snap = await getDocsOfflineFirst(q);
-  return sortTransactionsNewestFirst(snap.docs.map((d) => toTransaction(d.id, d.data())));
-}
-
-export function subscribeCreditTransactions(
-  storeId: string,
-  customerId: string,
-  callback: (txs: CreditTransaction[]) => void
-): () => void {
-  const q = query(
-    creditTransactionsCol(storeId),
-    where("customerId", "==", customerId)
-  );
-  return onSnapshot(q, (snap) => {
-    callback(sortTransactionsNewestFirst(snap.docs.map((d) => toTransaction(d.id, d.data()))));
-  });
+  return sortNewest(snap.docs.map((d) => toTransaction(d.id, d.data())));
 }

@@ -2,10 +2,15 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useCredits } from "@/hooks/useCredits";
+import { useAjal } from "@/hooks/useAjal";
 import {
   addCreditCustomer, updateCreditCustomer, deleteCreditCustomer,
   addCreditTransaction, addCustomerDebt, getCreditTransactions,
 } from "@/lib/firestore/credits";
+import {
+  addAjalCustomer, updateAjalCustomer, deleteAjalCustomer,
+  addAjalTransaction, addAjalDebt, getAjalTransactions,
+} from "@/lib/firestore/ajal";
 import { getSale } from "@/lib/firestore/sales";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDate, formatDateTime } from "@/lib/utils/date";
@@ -33,9 +38,10 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
 export default function CreditsPage() {
   const { appUser } = useAuth();
   const storeId = appUser?.storeId;
-  const { customers, totalDebt, loading } = useCredits(storeId);
+  const { customers: creditCustomers, totalDebt: creditTotalDebt, loading: creditLoading } = useCredits(storeId);
+  const { customers: ajalCustomers, totalDebt: ajalTotalDebt, loading: ajalLoading } = useAjal(storeId);
 
-  const [activeTab, setActiveTab] = useState<"credits" | "expenses">("credits");
+  const [activeTab, setActiveTab] = useState<"credits" | "ajal" | "expenses">("credits");
   const [search, setSearch] = useState("");
   const [showAddCustomer, setShowAddCustomer] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
@@ -49,6 +55,12 @@ export default function CreditsPage() {
   const [isMobile, setIsMobile] = useState(false);
   const [msg, setMsg] = useState("");
   const showMsg = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 3000); };
+
+  // قيم العرض تتبدّل حسب التبويب النشط
+  const isAjal = activeTab === "ajal";
+  const customers = isAjal ? ajalCustomers : creditCustomers;
+  const totalDebt = isAjal ? ajalTotalDebt : creditTotalDebt;
+  const loading = isAjal ? ajalLoading : creditLoading;
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -117,11 +129,13 @@ export default function CreditsPage() {
     setTransactions([]);
     setErrorMsg("");
     try {
-      const txs = await getCreditTransactions(storeId, c.id);
+      const txs = isAjal
+        ? await getAjalTransactions(storeId, c.id)
+        : await getCreditTransactions(storeId, c.id);
       const resolvedTxs = await resolveTransactionsWithItems(txs, storeId);
       setTransactions(resolvedTxs);
     } catch (e: unknown) {
-      console.error("Error loading credit transactions:", e);
+      console.error("Error loading transactions:", e);
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMsg("تعذر تحميل معاملات العميل: " + msg);
     } finally {
@@ -177,21 +191,18 @@ export default function CreditsPage() {
     setErrorMsg("");
     
     const initialDebt = Number(newInitialDebt) || 0;
-    const saveOp = addCreditCustomer(
-      storeId,
-      {
-        name: newName.trim(),
-        phone: newPhone.trim(),
-        address: newAddress.trim() || "",
-        totalDebt: initialDebt,
-        creditLimit: Number(creditLimit) || 50000,
-        isActive: true,
-        dueDate: newDueDate || "",
-      },
-      initialDebt > 0
-        ? { createdBy: appUser!.uid, initialDebtNote: "دين افتتاحي" }
-        : undefined
-    );
+    const customerData = {
+      name: newName.trim(),
+      phone: newPhone.trim(),
+      address: newAddress.trim() || "",
+      totalDebt: initialDebt,
+      creditLimit: Number(creditLimit) || 50000,
+      isActive: true,
+      dueDate: newDueDate || "",
+    };
+    const saveOp = isAjal
+      ? addAjalCustomer(storeId, customerData, initialDebt > 0 ? { createdBy: appUser!.uid, initialDebtNote: "دين افتتاحي" } : undefined)
+      : addCreditCustomer(storeId, customerData, initialDebt > 0 ? { createdBy: appUser!.uid, initialDebtNote: "دين افتتاحي" } : undefined);
 
     setShowAddCustomer(false);
     setNewName(""); setNewPhone(""); setNewAddress(""); setCreditLimit(50000); setNewDueDate(""); setNewInitialDebt("");
@@ -211,14 +222,12 @@ export default function CreditsPage() {
     setSaving(true);
     setErrorMsg("");
 
-    const saveOp = addCustomerDebt(
-      storeId,
-      selectedCustomer,
-      amount,
-      appUser!.uid,
-      debtNote.trim() || "إضافة دين",
-      new Date(debtDate)
-    );
+    // fire-and-forget — تُطبَّق فوراً على الكاش المحلي
+    if (isAjal) {
+      addAjalDebt(storeId, selectedCustomer, amount, appUser!.uid, debtNote.trim() || "إضافة دين", new Date(debtDate));
+    } else {
+      addCustomerDebt(storeId, selectedCustomer, amount, appUser!.uid, debtNote.trim() || "إضافة دين", new Date(debtDate));
+    }
 
     setShowAddDebt(false);
     const customerToLoad = selectedCustomer;
@@ -228,11 +237,6 @@ export default function CreditsPage() {
     if (detailCustomer?.id === customerToLoad.id) {
       loadTransactions({ ...customerToLoad, totalDebt: customerToLoad.totalDebt + amount }).catch(console.error);
     }
-
-    saveOp.catch((e) => {
-      console.error("Error adding debt:", e);
-      setErrorMsg("خطأ في إضافة الدين: " + (e instanceof Error ? e.message : String(e)));
-    });
   };
 
   const handlePayment = async () => {
@@ -244,21 +248,25 @@ export default function CreditsPage() {
     const balanceBefore = selectedCustomer.totalDebt;
     const balanceAfter = Math.max(0, balanceBefore - amount);
 
-    const txOp = addCreditTransaction(storeId, {
+    const txData = {
       customerId: selectedCustomer.id,
       customerName: selectedCustomer.name,
-      type: "payment",
+      type: "payment" as const,
       amount,
       balanceBefore,
       balanceAfter,
       note: payNote.trim() || "",
       createdBy: appUser!.uid,
       createdAt: new Date(payDate),
-    });
-    updateCreditCustomer(storeId, selectedCustomer.id, {
-      totalDebt: balanceAfter,
-      lastTransactionAt: new Date(payDate),
-    });
+    };
+    // كلتا العمليتان fire-and-forget — تُطبَّقان على الكاش المحلي فوراً
+    if (isAjal) {
+      addAjalTransaction(storeId, txData);
+      updateAjalCustomer(storeId, selectedCustomer.id, { totalDebt: balanceAfter, lastTransactionAt: new Date(payDate) });
+    } else {
+      addCreditTransaction(storeId, txData);
+      updateCreditCustomer(storeId, selectedCustomer.id, { totalDebt: balanceAfter, lastTransactionAt: new Date(payDate) });
+    }
 
     setShowPayment(false);
     const customerToLoad = selectedCustomer;
@@ -268,11 +276,6 @@ export default function CreditsPage() {
     if (detailCustomer?.id === customerToLoad.id) {
       loadTransactions({ ...customerToLoad, totalDebt: balanceAfter }).catch(console.error);
     }
-
-    txOp.catch((e) => {
-      console.error("Error saving payment:", e);
-      setErrorMsg("خطأ في تسجيل الدفعة: " + (e instanceof Error ? e.message : String(e)));
-    });
   };
 
   return (
@@ -283,9 +286,9 @@ export default function CreditsPage() {
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#17231c" }}>خانة الكريديتات والمصاريف</h1>
           <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>متابعة الديون والمصاريف اليومية</p>
         </div>
-        {activeTab === "credits" && (
+        {(activeTab === "credits" || activeTab === "ajal") && (
           <button onClick={() => { setErrorMsg(""); setShowAddCustomer(true); }} className="btn-primary">
-            <Plus size={18} /> عميل جديد
+            <Plus size={18} /> {activeTab === "ajal" ? "آجل جديد" : "عميل جديد"}
           </button>
         )}
       </div>
@@ -293,6 +296,7 @@ export default function CreditsPage() {
       <div style={{ display: "flex", borderRadius: "0.625rem", overflow: "hidden", border: "1px solid #e5e7eb", marginBottom: "1.25rem" }}>
         {([
           { id: "credits" as const, label: "الكريديتات", icon: CreditCard },
+          { id: "ajal" as const, label: "آجل", icon: ArrowRight },
           { id: "expenses" as const, label: "المصاريف", icon: Receipt },
         ]).map(({ id, label, icon: Icon }) => (
           <button
@@ -313,7 +317,7 @@ export default function CreditsPage() {
 
       {activeTab === "expenses" && <ExpensesPanel />}
 
-      {activeTab === "credits" && (
+      {(activeTab === "credits" || activeTab === "ajal") && (
       <>
 
       {/* Error banner */}
@@ -476,7 +480,7 @@ export default function CreditsPage() {
 
       {/* Add Customer Modal */}
       {showAddCustomer && (
-        <div className="modal-overlay" onClick={() => setShowAddCustomer(false)}>
+        <div className="modal-overlay" style={{ zIndex: 100 }} onClick={() => setShowAddCustomer(false)}>
           <div className="card animate-slide-up" style={{ width: "100%", maxWidth: "420px" }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1.25rem" }}>
               <h2 style={{ fontWeight: 700 }}>إضافة عميل جديد</h2>
@@ -524,7 +528,7 @@ export default function CreditsPage() {
 
       {/* Add Debt Modal */}
       {showAddDebt && selectedCustomer && (
-        <div className="modal-overlay" onClick={() => setShowAddDebt(false)}>
+        <div className="modal-overlay" style={{ zIndex: 100 }} onClick={() => setShowAddDebt(false)}>
           <div className="card animate-slide-up" style={{ width: "100%", maxWidth: "380px" }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1.25rem" }}>
               <h2 style={{ fontWeight: 700 }}>إضافة دين</h2>
@@ -563,7 +567,7 @@ export default function CreditsPage() {
 
       {/* Payment Modal */}
       {showPayment && selectedCustomer && (
-        <div className="modal-overlay" onClick={() => setShowPayment(false)}>
+        <div className="modal-overlay" style={{ zIndex: 100 }} onClick={() => setShowPayment(false)}>
           <div className="card animate-slide-up" style={{ width: "100%", maxWidth: "380px" }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1.25rem" }}>
               <h2 style={{ fontWeight: 700 }}>تسجيل دفعة</h2>
@@ -776,7 +780,9 @@ export default function CreditsPage() {
                   setCustomerToDelete(null); // أغلق النافذة دائماً أولاً حتى لا تَعلق
                   if (!storeId || !c) return;
                   try {
-                    await offlineAwareAwait(deleteCreditCustomer(storeId, c.id));
+                    await offlineAwareAwait(
+                      isAjal ? deleteAjalCustomer(storeId, c.id) : deleteCreditCustomer(storeId, c.id)
+                    );
                     showMsg("✅ تم حذف حساب العميل");
                   } catch (e) {
                     console.error("delete customer error:", e);

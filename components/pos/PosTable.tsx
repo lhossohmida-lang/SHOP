@@ -65,10 +65,18 @@ export default function PosTable({ lines, mode, onQty, onAmount, onRemove, focus
     (refs.current[l.productId] ?? qtyRefs.current[l.productId])?.focus();
   };
 
-  // لوحة المفاتيح داخل خانة الكمية/المبلغ: Enter→بحث، أسهم→تنقّل، +/-→كمية.
+  // لوحة المفاتيح داخل خانة الكمية/المبلغ: Enter→بحث، أسهم→تنقّل، +/-→كمية، Suppr→حذف الصنف.
   const onCellKeyDown = (e: React.KeyboardEvent, index: number) => {
     const l = lines[index];
     if (!l) return;
+    if (e.key === "Delete") {
+      // Suppr داخل خانة المنتج = حذفه من السلة ثم العودة لخانة البحث
+      e.preventDefault();
+      setEditing(null);
+      onRemove(l.productId);
+      onReturnToSearch?.();
+      return;
+    }
     if (e.key === "Enter") { e.preventDefault(); setEditing(null); onReturnToSearch?.(); return; }
     if (e.key === "ArrowDown") { e.preventDefault(); focusLine(index + 1); return; }
     if (e.key === "ArrowUp") { e.preventDefault(); focusLine(index - 1); return; }

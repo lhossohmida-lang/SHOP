@@ -10,6 +10,7 @@ import {
   CreditCard,
   BarChart3,
   Sparkles,
+  Wallet,
 } from "lucide-react";
 
 const navItems = [
@@ -21,6 +22,7 @@ const navItems = [
   { href: "/credits", label: "كريديتات", icon: CreditCard },
   { href: "/reports", label: "التقارير", icon: BarChart3 },
   { href: "/ai", label: "الذكاء", icon: Sparkles },
+  { href: "/cashbox", label: "الصندوق", icon: Wallet },
 ];
 
 export default function BottomNav() {

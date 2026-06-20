@@ -140,12 +140,16 @@ export default function PosPage() {
     return () => window.removeEventListener("add-shortcut-product", handleShortcutAdd);
   }, [tryAddProduct, focusSearch]);
 
-  // F1 → open new POS window
+  // F1 → نافذة بيع جديدة، F2 → بيع كريدي + فتح اختيار العميل (كأنك ضغطت "اختر عميل")
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "F1") {
         e.preventDefault();
         window.open(window.location.href, "_blank", "width=1200,height=800,menubar=no,toolbar=no,status=no");
+      } else if (e.key === "F2") {
+        e.preventDefault();
+        setMode("credit");
+        setShowCreditPanel(true);
       }
     };
     window.addEventListener("keydown", handler);
@@ -420,6 +424,15 @@ export default function PosPage() {
                   e.preventDefault();
                 }
               }
+              // Suppr/Delete في خانة البحث الفارغة = اختصار لمسح السلة كلها
+              if (e.key === "Delete" && !search) {
+                e.preventDefault();
+                if (cart.lines.length > 0) {
+                  cart.clearCart();
+                  showMsg("🗑️ تم مسح السلة");
+                }
+                return;
+              }
               if (e.key === "Escape") { setSearch(""); setShowDropdown(false); }
             }}
           />
@@ -526,7 +539,7 @@ export default function PosPage() {
                 <span className="badge-green">{cart.lines.length} صنف</span>
               )}
               <span style={{ marginRight: "auto", fontSize: "0.72rem", color: "#9ca3af", display: "flex", alignItems: "center", gap: "0.25rem", flexWrap: "wrap" }}>
-                <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: "0.7rem", fontFamily: "monospace" }}>F1</kbd> نافذة &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #c5e5b8", background: "#f1f8ee", fontSize: "0.7rem", fontFamily: "monospace", color: "#26683a" }}>F9</kbd> طباعة وتأكيد &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #c5e5b8", background: "#f1f8ee", fontSize: "0.7rem", fontFamily: "monospace", color: "#26683a" }}>F10</kbd> تأكيد بدون طباعة
+                <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: "0.7rem", fontFamily: "monospace" }}>F1</kbd> نافذة &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #fde68a", background: "#fffbeb", fontSize: "0.7rem", fontFamily: "monospace", color: "#92400e" }}>F2</kbd> كريدي &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #c5e5b8", background: "#f1f8ee", fontSize: "0.7rem", fontFamily: "monospace", color: "#26683a" }}>F9</kbd> طباعة وتأكيد &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #c5e5b8", background: "#f1f8ee", fontSize: "0.7rem", fontFamily: "monospace", color: "#26683a" }}>F10</kbd> تأكيد بدون طباعة
               </span>
             </div>
             <PosTable

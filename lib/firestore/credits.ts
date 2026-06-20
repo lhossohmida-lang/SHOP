@@ -198,6 +198,41 @@ export async function getCreditTransactions(
   return sortTransactionsNewestFirst(snap.docs.map((d) => toTransaction(d.id, d.data())));
 }
 
+/**
+ * جلب جميع دفعات الكريدي (type === "payment") في فترة زمنية.
+ * نجلب معاملات الفترة ثم نُرشّح الدفعات محلياً (متوافق مع وضع عدم الاتصال، بلا فهرس مركّب).
+ */
+export async function getCreditPaymentsByDateRange(
+  storeId: string,
+  start: Date,
+  end: Date
+): Promise<CreditTransaction[]> {
+  try {
+    const q = query(
+      creditTransactionsCol(storeId),
+      where("createdAt", ">=", start),
+      where("createdAt", "<=", end),
+      orderBy("createdAt", "desc")
+    );
+    const snap = await getDocsOfflineFirst(q);
+    return snap.docs
+      .map((d) => toTransaction(d.id, d.data()))
+      .filter((t) => t.type === "payment");
+  } catch {
+    // fallback: اجلب الكل من الكاش ورشّح بالتاريخ والنوع محلياً
+    try {
+      const snap = await getDocsOfflineFirst(query(creditTransactionsCol(storeId)));
+      return sortTransactionsNewestFirst(
+        snap.docs
+          .map((d) => toTransaction(d.id, d.data()))
+          .filter((t) => t.type === "payment" && t.createdAt >= start && t.createdAt <= end)
+      );
+    } catch {
+      return [];
+    }
+  }
+}
+
 export function subscribeCreditTransactions(
   storeId: string,
   customerId: string,

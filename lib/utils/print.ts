@@ -4,9 +4,8 @@ import { STORE_NAME } from "@/lib/constants/branding";
 import { formatCurrency } from "./currency";
 import { formatDateTime } from "./date";
 
-/** Standard receipt / statement paper size */
-const RECEIPT_PAGE = "88mm 100mm";
-const RECEIPT_WINDOW = { width: 333, height: 378 };
+/** Standard receipt / statement paper: 80mm thermal roll (height auto-fits content). */
+const RECEIPT_WINDOW = { width: 303, height: 600 };
 
 /** Small product label paper size — 40mm wide × 20mm tall, landscape */
 const LABEL_PAGE = "40mm 20mm";
@@ -74,8 +73,20 @@ function printViaIframe(html: string): void {
 async function executePrint(
   html: string,
   width = RECEIPT_WINDOW.width,
-  height = RECEIPT_WINDOW.height
+  height = RECEIPT_WINDOW.height,
+  tightWidthMm?: number
 ): Promise<void> {
+  // جسر Electron: يطبع بحجم ورق محسوب من المحتوى (بلا فراغ أبيض). للوصل وكشف الحساب فقط.
+  const electronAPI = typeof window !== "undefined" ? (window as any).electronAPI : undefined;
+  if (tightWidthMm && electronAPI?.printHTML) {
+    try {
+      await electronAPI.printHTML(html, tightWidthMm);
+      return;
+    } catch (err) {
+      console.error("electron printHTML failed, falling back to browser print:", err);
+    }
+  }
+
   const isElectron = typeof window !== "undefined" && window.navigator.userAgent.toLowerCase().includes("electron");
 
   if (isElectron) {
@@ -291,11 +302,11 @@ export function printReceipt(sale: Sale, storeName = STORE_NAME): void {
   const lines = sale.items
     .map(
       (item) =>
-        `<tr>
-          <td style="padding:3px 4px;font-size:13px;font-weight:bold;">${item.productName}</td>
-          <td style="padding:3px 4px;text-align:center;font-size:13px;font-weight:bold;">${item.quantity}</td>
-          <td style="padding:3px 4px;text-align:left;font-size:13px;font-weight:bold;">${formatCurrency(item.unitPrice)}</td>
-          <td style="padding:3px 4px;text-align:left;font-size:13px;font-weight:bold;">${formatCurrency(item.totalPrice)}</td>
+        `<tr style="border-bottom:1px solid #ddd;">
+          <td style="padding:4px 1px;text-align:right;font-size:12px;font-weight:bold;">${item.productName}</td>
+          <td style="padding:4px 1px;text-align:center;font-size:12px;font-weight:bold;">${item.quantity}</td>
+          <td style="padding:4px 1px;text-align:left;font-size:10px;font-weight:bold;white-space:nowrap;">${formatCurrency(item.unitPrice)}</td>
+          <td style="padding:4px 1px;text-align:left;font-size:10px;font-weight:bold;white-space:nowrap;">${formatCurrency(item.totalPrice)}</td>
         </tr>`
     )
     .join("");
@@ -312,22 +323,30 @@ export function printReceipt(sale: Sale, storeName = STORE_NAME): void {
   <meta charset="UTF-8"/>
   <title>وصل بيع ${sale.receiptNumber}</title>
   <style>
-    @page { size: 88mm auto; margin: 2mm; }
+    /* الصفحة = 72mm (عرض الطباعة الفعلي لورق 80mm). المحتوى يملأها بهوامش متساوية فيظهر موسَّطاً (لا انحياز يميناً). */
+    @page { size: 72mm auto; margin: 0; }
     * { box-sizing: border-box; }
-    html, body {
-      width: 88mm;
-    }
-    body { font-family: Tahoma, Arial, sans-serif; font-size: 13px; font-weight: bold; margin: 0; padding: 2mm; direction: rtl; color: #000; }
+    html, body { width: 72mm; margin: 0; }
+    /* بلا فراغ يدوي كبير: القص التلقائي للطابعة يتولّى دفع الورق. فراغ سفلي صغير فقط. */
+    body { font-family: Tahoma, Arial, sans-serif; font-size: 13px; font-weight: bold; padding: 1mm 3mm 3mm; direction: rtl; color: #000; }
+    /* منع انقسام التيكت على صفحتين (المجاميع يجب ألا تنفصل عن الأصناف) */
+    table, tr, .totals, .footer, .header, .meta { page-break-inside: avoid; break-inside: avoid; }
     .header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 5px; margin-bottom: 5px; }
     .header h2 { margin: 0; font-size: 18px; font-weight: 900; }
     .meta { font-size: 12px; color: #000; margin-bottom: 5px; font-weight: bold; }
-    table { width: 100%; border-collapse: collapse; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     thead tr { background: #f1f8ee; }
-    th { padding: 4px 4px; font-size: 12px; text-align: right; border-bottom: 2px solid #000; font-weight: 900; }
+    th, td { word-wrap: break-word; overflow-wrap: break-word; }
+    th { padding: 4px 2px; font-size: 12px; text-align: right; border-bottom: 2px solid #000; font-weight: 900; }
+    .col-name { width: 38%; text-align: right; }
+    .col-qty { width: 12%; text-align: center; }
+    .col-price { width: 25%; text-align: left; }
+    .col-total { width: 25%; text-align: left; }
     .totals { margin-top: 5px; border-top: 2px dashed #000; padding-top: 5px; }
-    .totals tr td { font-size: 13px; }
-    .totals tr td:first-child { font-weight: 900; }
-    .total-row td { font-size: 16px; font-weight: 900; color: #000; }
+    .totals td { font-size: 13px; padding: 2px 2px; }
+    .totals .lbl { text-align: right; font-weight: 900; }
+    .totals .val { text-align: left; font-weight: 900; white-space: nowrap; }
+    .total-row td { font-size: 17px; font-weight: 900; color: #000; padding-top: 4px; }
     .footer { text-align: center; margin-top: 5px; font-size: 11px; color: #333; border-top: 1px dashed #999; padding-top: 4px; font-weight: bold; }
   </style>
 </head>
@@ -343,24 +362,28 @@ export function printReceipt(sale: Sale, storeName = STORE_NAME): void {
     <div>طريقة الدفع: ${payMap[sale.paymentMethod] || sale.paymentMethod}</div>
   </div>
   <table>
+    <colgroup>
+      <col class="col-name"/><col class="col-qty"/><col class="col-price"/><col class="col-total"/>
+    </colgroup>
     <thead>
       <tr>
-        <th>المنتج</th><th>الكمية</th><th>السعر</th><th>المجموع</th>
+        <th style="text-align:right;">المنتج</th><th style="text-align:center;">الكمية</th><th style="text-align:left;">السعر</th><th style="text-align:left;">المجموع</th>
       </tr>
     </thead>
     <tbody>${lines}</tbody>
   </table>
   <table class="totals">
-    <tr><td>المجموع الفرعي</td><td style="text-align:left;">${formatCurrency(sale.subtotal)}</td></tr>
-    ${sale.discount > 0 ? `<tr><td>الخصم</td><td style="text-align:left;">-${formatCurrency(sale.discount)}</td></tr>` : ""}
-    ${sale.tax > 0 ? `<tr><td>الضريبة</td><td style="text-align:left;">${formatCurrency(sale.tax)}</td></tr>` : ""}
-    <tr class="total-row"><td>الإجمالي</td><td style="text-align:left;">${formatCurrency(sale.total)}</td></tr>
+    <colgroup><col style="width:60%;"/><col style="width:40%;"/></colgroup>
+    <tr><td class="lbl">المجموع الفرعي</td><td class="val">${formatCurrency(sale.subtotal)}</td></tr>
+    ${sale.discount > 0 ? `<tr><td class="lbl">الخصم</td><td class="val">-${formatCurrency(sale.discount)}</td></tr>` : ""}
+    ${sale.tax > 0 ? `<tr><td class="lbl">الضريبة</td><td class="val">${formatCurrency(sale.tax)}</td></tr>` : ""}
+    <tr class="total-row"><td class="lbl">الإجمالي</td><td class="val">${formatCurrency(sale.total)}</td></tr>
   </table>
   <div class="footer">شكراً لزيارتكم! • ${storeName}</div>
 </body>
 </html>`;
 
-  executePrint(html, RECEIPT_WINDOW.width, RECEIPT_WINDOW.height);
+  executePrint(html, RECEIPT_WINDOW.width, RECEIPT_WINDOW.height, 72);
 }
 
 export function printCustomerStatement(
@@ -412,12 +435,14 @@ export function printCustomerStatement(
   <meta charset="UTF-8"/>
   <title>كشف حساب عميل: ${customer.name}</title>
   <style>
-    @page { size: 88mm auto; margin: 2mm; }
+    /* الصفحة = 72mm (عرض الطباعة الفعلي لورق 80mm). المحتوى يملأها بهوامش متساوية فيظهر موسَّطاً. */
+    @page { size: 72mm auto; margin: 0; }
     * { box-sizing: border-box; }
-    html, body {
-      width: 88mm;
-    }
-    body { font-family: Tahoma, Arial, sans-serif; font-size: 12px; font-weight: bold; margin: 0; padding: 2mm; direction: rtl; color: #000; }
+    html, body { width: 72mm; margin: 0; }
+    /* بلا فراغ يدوي كبير: القص التلقائي للطابعة يتولّى دفع الورق. فراغ سفلي صغير فقط. */
+    body { font-family: Tahoma, Arial, sans-serif; font-size: 12px; font-weight: bold; padding: 1mm 3mm 3mm; direction: rtl; color: #000; }
+    /* منع انقسام الكشف على صفحتين */
+    table, tr, .footer, .header, .customer-info { page-break-inside: avoid; break-inside: avoid; }
     .header { text-align: center; border-bottom: 2px solid #26683a; padding-bottom: 5px; margin-bottom: 7px; }
     .header h2 { margin: 0; font-size: 17px; font-weight: 900; color: #26683a; }
     .customer-info { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 7px; background: #f8fdf5; padding: 5px; border-radius: 4px; border: 1px solid #c5e5b8; font-size: 11px; }
@@ -473,5 +498,5 @@ export function printCustomerStatement(
 </body>
 </html>`;
 
-  executePrint(html, RECEIPT_WINDOW.width, RECEIPT_WINDOW.height);
+  executePrint(html, RECEIPT_WINDOW.width, RECEIPT_WINDOW.height, 72);
 }

@@ -100,7 +100,7 @@ export default function AiPage() {
       if (!success) {
         // ── Direct client-side fetch to OpenRouter (for APK, Web, or as fallback for EXE) ──
         const apiKey = process.env.NEXT_PUBLIC_OPENROUTER_API_KEY;
-        const model = process.env.NEXT_PUBLIC_AI_MODEL || "meta-llama/llama-3.1-8b-instruct:free";
+        const model = process.env.NEXT_PUBLIC_AI_MODEL || "meta-llama/llama-3.3-70b-instruct:free";
 
         if (!apiKey || apiKey === "your-openrouter-key-here") {
           setMessages(prev => [...prev, { role: "assistant", content: "⚠️ مفتاح OpenRouter API غير مُعين." }]);

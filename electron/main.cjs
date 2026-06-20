@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, shell, ipcMain } = require("electron");
 const path = require("path");
 const http = require("http");
 const fs = require("fs");
@@ -251,6 +251,7 @@ async function createWindow() {
       contextIsolation: true,
       webSecurity: false,
       allowRunningInsecureContent: true,
+      preload: path.join(__dirname, "preload.cjs"),
     },
     title: "بلقاسم",
     backgroundColor: "#f8fdf5",
@@ -306,6 +307,7 @@ async function createWindow() {
             nodeIntegration: false,
             contextIsolation: true,
             webSecurity: false,
+            preload: path.join(__dirname, "preload.cjs"),
           },
         },
       };
@@ -328,6 +330,73 @@ async function createWindow() {
     loadStartupError(err);
   }
 }
+
+// طباعة محلية بحجم ورق محسوب من ارتفاع المحتوى — يلغي الفراغ الأبيض أسفل الوصل.
+// نُحمّل HTML في نافذة مخفية، نقيس ارتفاع المحتوى، ثم نطبع بحجم ورق مطابق تماماً.
+ipcMain.handle("print-html", async (_evt, { html, widthMm }) => {
+  const w = widthMm || 80;
+  // عرض النافذة ثابت (~84mm) حتى يتخطّط المحتوى بعرضه الصحيح؛ الارتفاع صغير ولا يؤثر على القياس.
+  const printWin = new BrowserWindow({
+    show: false,
+    width: 320,
+    height: 200,
+    webPreferences: { offscreen: false, sandbox: false },
+  });
+  try {
+    await printWin.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+    // مهلة قصيرة حتى يستقر التخطيط والخطوط
+    await new Promise((r) => setTimeout(r, 350));
+
+    let heightPx = 0;
+    try {
+      // نقيس ارتفاع المحتوى الفعلي فقط (getBoundingClientRect على body) — وليس ارتفاع
+      // نافذة المتصفح، حتى لا تنشأ صفحة طويلة جداً بفراغ كبير فوق/تحت التيكت.
+      heightPx = await printWin.webContents.executeJavaScript(
+        "Math.ceil(document.body.getBoundingClientRect().height)"
+      );
+    } catch {}
+
+    // px → mm عند 96dpi (تغذية القص مضمّنة في نقاط .cut-feed أسفل المحتوى)
+    const heightMm = Math.max(35, (heightPx / 96) * 25.4 + 2);
+    const micron = (mm) => Math.round(mm * 1000);
+
+    // اكتشف الطابعة الحرارية تلقائياً (Xprinter / POS / 80mm) لاستخدامها في الطباعة الصامتة
+    let deviceName = "";
+    try {
+      const printers = await printWin.webContents.getPrintersAsync();
+      const thermal = printers.find((p) =>
+        /xp|xprinter|pos|thermal|receipt|80mm|58mm/i.test(`${p.name} ${p.displayName || ""}`)
+      );
+      const def = printers.find((p) => p.isDefault);
+      deviceName = (thermal || def || printers[0] || {}).name || "";
+      log(`print-html: using printer "${deviceName}" (${printers.length} available)`);
+    } catch (e) {
+      log("print-html: getPrintersAsync failed", e);
+    }
+
+    // طباعة صامتة تفرض ارتفاع الصفحة المحسوب بالضبط (لا نافذة تتجاوز الحجم) → صفحة واحدة، لا انقسام
+    await new Promise((resolve) => {
+      printWin.webContents.print(
+        {
+          silent: true,
+          deviceName: deviceName || undefined,
+          printBackground: true,
+          margins: { marginType: "none" },
+          pageSize: { width: micron(w), height: micron(heightMm) },
+        },
+        (success, failureReason) => {
+          if (!success) log(`print-html: silent print failed: ${failureReason}`);
+          resolve();
+        }
+      );
+    });
+  } catch (err) {
+    log("print-html failed", err);
+    throw err;
+  } finally {
+    setTimeout(() => { try { printWin.close(); } catch {} }, 1500);
+  }
+});
 
 app.whenReady().then(createWindow);
 

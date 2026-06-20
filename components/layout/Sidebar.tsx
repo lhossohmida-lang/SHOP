@@ -19,6 +19,7 @@ import {
   Sparkles,
   LogOut,
   Zap,
+  Wallet,
 } from "lucide-react";
 
 const navItems = [
@@ -30,6 +31,7 @@ const navItems = [
   { href: "/credits", label: "خانة الكريديتات والمصاريف", icon: CreditCard },
   { href: "/reports", label: "التقارير", icon: BarChart3 },
   { href: "/ai", label: "المساعد الذكي", icon: Sparkles },
+  { href: "/cashbox", label: "صندوق النقود", icon: Wallet },
 ];
 
 export default function Sidebar() {

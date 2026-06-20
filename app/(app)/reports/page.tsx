@@ -3,11 +3,13 @@ import { useState, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getSalesByDateRange, returnSaleItems, deleteSaleAndRestoreStock } from "@/lib/firestore/sales";
 import { getExpensesByDateRange } from "@/lib/firestore/expenses";
+import { getCreditPaymentsByDateRange } from "@/lib/firestore/credits";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDateTime } from "@/lib/utils/date";
-import { BarChart3, Download, Search, Trash2, Receipt } from "lucide-react";
+import { BarChart3, Download, Search, Trash2, Receipt, X, CreditCard } from "lucide-react";
 import type { Sale } from "@/types/sale";
 import type { Expense } from "@/types/expense";
+import type { CreditTransaction } from "@/types/credit";
 import PasswordGate from "@/components/layout/PasswordGate";
 import { useProducts } from "@/hooks/useProducts";
 import { useAjal } from "@/hooks/useAjal";
@@ -24,6 +26,8 @@ export default function ReportsPage() {
   const [payFilter, setPayFilter] = useState("الكل");
   const [sales, setSales] = useState<Sale[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [creditPayments, setCreditPayments] = useState<CreditTransaction[]>([]);
+  const [showCreditPayments, setShowCreditPayments] = useState(false);
   const [loading, setLoading] = useState(false);
   const [fetched, setFetched] = useState(false);
   // نافذة الإرجاع (جزئي أو كلي) + نافذة الإلغاء الكامل + الكميات المُختارة لكل صنف + رسالة toast (بدل alert).
@@ -40,13 +44,15 @@ export default function ReportsPage() {
       const start = new Date(startDate); start.setHours(0, 0, 0, 0);
       const end = new Date(endDate); end.setHours(23, 59, 59, 999);
       
-      const [salesData, expensesData] = await Promise.all([
+      const [salesData, expensesData, creditPaymentsData] = await Promise.all([
         getSalesByDateRange(storeId, start, end),
         getExpensesByDateRange(storeId, start, end),
+        getCreditPaymentsByDateRange(storeId, start, end),
       ]);
-      
+
       setSales(salesData);
       setExpenses(expensesData);
+      setCreditPayments(creditPaymentsData);
       setFetched(true);
     } catch (e) {
       console.error("Error loading reports:", e);
@@ -149,6 +155,8 @@ export default function ReportsPage() {
   const cashTotal = filtered.filter(s => s.paymentMethod === "cash").reduce((s, sale) => s + sale.total, 0);
   const expensesTotal = expenses.reduce((s, e) => s + e.amount, 0);
   const netTotal = totalAmount - expensesTotal;
+  // مدفوعات الكريديات: ما سدّده العملاء من ديونهم خلال الفترة
+  const creditPaymentsTotal = creditPayments.reduce((s, t) => s + t.amount, 0);
 
   // رأس المال (تكلفة الشراء للأصناف المباعة) + الفائدة (هامش الربح)
   // نستخدم سعر الشراء الحالي للمنتجات تقريباً (أدق ما يمكن بدون تخزين السعر في كل فاتورة)
@@ -277,6 +285,76 @@ export default function ReportsPage() {
             <div style={{ fontSize: "0.78rem", color: "#6b7280", marginBottom: "0.25rem" }}>كريديات آجلة (إجمالي)</div>
             <div style={{ fontSize: "1.3rem", fontWeight: 700, color: ajalTotalDebt > 0 ? "#d97706" : "#9ca3af" }}>{formatCurrency(ajalTotalDebt)}</div>
             <div style={{ fontSize: "0.68rem", color: "#9ca3af", marginTop: "0.15rem" }}>مجموع ديون الآجل المتراكمة</div>
+          </div>
+
+          {/* مدفوعات الكريديات — قابلة للنقر لعرض التفاصيل */}
+          <button
+            onClick={() => setShowCreditPayments(true)}
+            className="card-sm"
+            style={{
+              border: "1px solid #93c5fd", background: "#eff6ff", cursor: "pointer",
+              textAlign: "right", transition: "all 0.15s", outline: "none",
+            }}
+            onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(59,130,246,0.2)"; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}
+            title="انقر لعرض كل مدفوعات العملاء بالتفصيل"
+          >
+            <div style={{ fontSize: "0.78rem", color: "#6b7280", marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+              <span>مدفوعات الكريديات</span>
+              <span style={{ fontSize: "0.65rem", color: "#2563eb", fontWeight: 600 }}>↗ عرض</span>
+            </div>
+            <div style={{ fontSize: "1.3rem", fontWeight: 700, color: "#2563eb" }}>{formatCurrency(creditPaymentsTotal)}</div>
+            <div style={{ fontSize: "0.68rem", color: "#9ca3af", marginTop: "0.15rem" }}>{creditPayments.length} دفعة من العملاء</div>
+          </button>
+        </div>
+      )}
+
+      {/* نافذة تفاصيل مدفوعات الكريديات */}
+      {showCreditPayments && (
+        <div className="modal-overlay" onClick={() => setShowCreditPayments(false)}>
+          <div
+            className="card animate-slide-up"
+            style={{ width: "100%", maxWidth: "560px", maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+              <h2 style={{ fontWeight: 700, fontSize: "1.1rem", display: "flex", alignItems: "center", gap: "0.5rem", color: "#2563eb" }}>
+                <CreditCard size={20} /> مدفوعات الكريديات
+              </h2>
+              <button onClick={() => setShowCreditPayments(false)} className="btn-secondary" style={{ padding: "0.35rem 0.6rem" }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ background: "#eff6ff", borderRadius: "0.625rem", padding: "0.75rem 1rem", marginBottom: "0.875rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>الإجمالي خلال الفترة</span>
+              <span style={{ fontSize: "1.2rem", fontWeight: 700, color: "#2563eb" }}>{formatCurrency(creditPaymentsTotal)}</span>
+            </div>
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              {creditPayments.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "2.5rem", color: "#9ca3af" }}>لا توجد مدفوعات في هذه الفترة</div>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ background: "#f1f8ee", textAlign: "right" }}>
+                      <th style={{ padding: "0.5rem 0.6rem", fontSize: "0.78rem", color: "#26683a" }}>العميل</th>
+                      <th style={{ padding: "0.5rem 0.6rem", fontSize: "0.78rem", color: "#26683a" }}>التاريخ</th>
+                      <th style={{ padding: "0.5rem 0.6rem", fontSize: "0.78rem", color: "#26683a" }}>ملاحظة</th>
+                      <th style={{ padding: "0.5rem 0.6rem", fontSize: "0.78rem", color: "#26683a", textAlign: "left" }}>المبلغ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {creditPayments.map((t) => (
+                      <tr key={t.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                        <td style={{ padding: "0.55rem 0.6rem", fontSize: "0.82rem", fontWeight: 600, color: "#17231c" }}>{t.customerName || "—"}</td>
+                        <td style={{ padding: "0.55rem 0.6rem", fontSize: "0.76rem", color: "#6b7280", whiteSpace: "nowrap" }}>{formatDateTime(t.createdAt)}</td>
+                        <td style={{ padding: "0.55rem 0.6rem", fontSize: "0.76rem", color: "#6b7280" }}>{t.note || "—"}</td>
+                        <td style={{ padding: "0.55rem 0.6rem", fontSize: "0.85rem", fontWeight: 700, color: "#16a34a", textAlign: "left", whiteSpace: "nowrap" }}>{formatCurrency(t.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         </div>
       )}

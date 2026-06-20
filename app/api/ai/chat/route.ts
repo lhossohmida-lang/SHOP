@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const AI_MODEL = process.env.NEXT_PUBLIC_AI_MODEL || "meta-llama/llama-3.1-8b-instruct:free";
+const AI_MODEL = process.env.NEXT_PUBLIC_AI_MODEL || "meta-llama/llama-3.3-70b-instruct:free";
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || process.env.NEXT_PUBLIC_OPENROUTER_API_KEY || "";
 
 export async function POST(req: NextRequest) {

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { subscribeProducts } from "@/lib/firestore/products";
 import type { Product } from "@/types/product";
 
@@ -24,8 +24,16 @@ export function useProducts(storeId: string | undefined) {
     return () => { clearTimeout(timer); unsub(); };
   }, [storeId]);
 
-  const lowStock = products.filter((p) => p.stock <= p.minStock && p.isActive);
-  const activeProducts = products.filter((p) => p.isActive);
+  // مذكّرة: تُحسب مرة واحدة عند تغيّر المنتجات فقط. بدونها كانت تُنشأ مصفوفتان
+  // جديدتان في كل تصيير، فتُعيد المكوّنات المستهلِكة (نقطة البيع، الشريط الجانبي) حساباتها بلا داعٍ.
+  const activeProducts = useMemo(
+    () => products.filter((p) => p.isActive),
+    [products]
+  );
+  const lowStock = useMemo(
+    () => activeProducts.filter((p) => p.stock <= p.minStock),
+    [activeProducts]
+  );
 
   return { products, activeProducts, lowStock, loading, error };
 }

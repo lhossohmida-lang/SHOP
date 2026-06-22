@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { useCredits } from "@/hooks/useCredits";
@@ -169,13 +169,16 @@ export default function PosPage() {
   }, []);
 
 
-  const suggestions = search.trim().length > 0
-    ? activeProducts.filter(p =>
-        p.nameAr.includes(search) ||
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        productMatchesBarcodeSearch(p, search)
-      ).slice(0, 8)
-    : [];
+  // مذكَّرة: لا تُعاد إلا عند تغيّر البحث أو المنتجات (لا عند كل ضغطة سهم أو إشعار).
+  const suggestions = useMemo(() => {
+    if (search.trim().length === 0) return [];
+    const sLower = search.toLowerCase();
+    return activeProducts.filter(p =>
+      p.nameAr.includes(search) ||
+      p.name.toLowerCase().includes(sLower) ||
+      productMatchesBarcodeSearch(p, search)
+    ).slice(0, 8);
+  }, [activeProducts, search]);
 
   const handleBarcode = useCallback((code: string) => {
     const normalized = normalizeScannedDigits(code.trim());
@@ -320,8 +323,11 @@ export default function PosPage() {
     return () => window.removeEventListener("keydown", handler);
   }, [handleConfirm]);
 
-  const filteredCustomers = activeCustomers.filter(c =>
-    !custSearch || c.name.includes(custSearch) || c.phone.includes(custSearch)
+  const filteredCustomers = useMemo(
+    () => activeCustomers.filter(c =>
+      !custSearch || c.name.includes(custSearch) || c.phone.includes(custSearch)
+    ),
+    [activeCustomers, custSearch]
   );
 
   // اختيار عميل الكريدي (يُستعمل بالنقر وبمفتاح Enter)

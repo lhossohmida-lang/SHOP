@@ -38,7 +38,9 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { appUser, logOut } = useAuth();
   const storeId = appUser?.storeId;
-  const { activeProducts } = useProducts(storeId);
+  // الشريط الجانبي يحتاج المنتجات فقط لشبكة الاختصارات في صفحة البيع.
+  // لا نشترك في مجموعة المنتجات على بقية الصفحات حتى لا يتكرّر مستمع Firestore بلا داعٍ.
+  const { activeProducts } = useProducts(pathname === "/pos" ? storeId : undefined);
   const [shortcuts, setShortcuts] = useState<(Product | null)[]>(Array(18).fill(null));
 
   useEffect(() => {

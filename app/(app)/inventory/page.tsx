@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useDeferredValue } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { updateProduct } from "@/lib/firestore/products";
@@ -75,14 +75,23 @@ export default function InventoryPage() {
   const [shortcutSearch, setShortcutSearch] = useState("");
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
 
-  const categories = ["الكل", ...Array.from(new Set(products.map(p => p.category)))];
+  const categories = useMemo(
+    () => ["الكل", ...Array.from(new Set(products.map(p => p.category)))],
+    [products]
+  );
 
-  const filtered = products.filter(p => {
-    const matchSearch = !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.nameAr.includes(search) || productMatchesBarcodeSearch(p, search);
-    const matchCat = category === "الكل" || p.category === category;
-    const matchStock = stockFilter === "الكل" || (stockFilter === "نفد" && p.stock === 0) || (stockFilter === "قليل" && p.stock > 0 && p.stock <= p.minStock) || (stockFilter === "متوفر" && p.stock > p.minStock);
-    return matchSearch && matchCat && matchStock;
-  });
+  // البحث المؤجَّل يُبقي الكتابة فورية بينما يُعاد حساب القائمة وتصيير الجدول بأولوية أدنى.
+  const deferredSearch = useDeferredValue(search);
+  const filtered = useMemo(() => {
+    const s = deferredSearch.trim();
+    const sLower = s.toLowerCase();
+    return products.filter(p => {
+      const matchSearch = !s || p.name.toLowerCase().includes(sLower) || p.nameAr.includes(deferredSearch) || productMatchesBarcodeSearch(p, deferredSearch);
+      const matchCat = category === "الكل" || p.category === category;
+      const matchStock = stockFilter === "الكل" || (stockFilter === "نفد" && p.stock === 0) || (stockFilter === "قليل" && p.stock > 0 && p.stock <= p.minStock) || (stockFilter === "متوفر" && p.stock > p.minStock);
+      return matchSearch && matchCat && matchStock;
+    });
+  }, [products, deferredSearch, category, stockFilter]);
 
   // لوحة التعديل السريع: المنتجات المحدَّدة + إضافة/إزالة + حفظ السعر والمخزون.
   const editProducts = useMemo(
@@ -97,15 +106,25 @@ export default function InventoryPage() {
     await offlineAwareAwait(updateProduct(storeId, id, { stock: data.stock }));
   };
 
-  const totalValue = products.reduce((s, p) => s + p.stock * p.purchasePrice, 0);
-  const outOfStock = products.filter(p => p.stock === 0);
-  const lowStock = products.filter(p => p.stock > 0 && p.stock <= p.minStock);
-  const nearExpiry = products
-    .filter(p => {
-      const d = daysUntilExpiry(p.expiryDate);
-      return d !== null && d <= EXPIRY_SOON_DAYS;
-    })
-    .sort((a, b) => daysUntilExpiry(a.expiryDate)! - daysUntilExpiry(b.expiryDate)!);
+  // إحصاءات مذكَّرة: تُحسب عند تغيّر المنتجات فقط بدل كل تصيير (فتح نافذة، كتابة، تعديل مخزون…).
+  const totalValue = useMemo(
+    () => products.reduce((s, p) => s + p.stock * p.purchasePrice, 0),
+    [products]
+  );
+  const outOfStock = useMemo(() => products.filter(p => p.stock === 0), [products]);
+  const lowStock = useMemo(
+    () => products.filter(p => p.stock > 0 && p.stock <= p.minStock),
+    [products]
+  );
+  const nearExpiry = useMemo(
+    () => products
+      .filter(p => {
+        const d = daysUntilExpiry(p.expiryDate);
+        return d !== null && d <= EXPIRY_SOON_DAYS;
+      })
+      .sort((a, b) => daysUntilExpiry(a.expiryDate)! - daysUntilExpiry(b.expiryDate)!),
+    [products]
+  );
 
   const saveStock = async (p: Product) => {
     if (!storeId) return;
@@ -162,10 +181,14 @@ export default function InventoryPage() {
     }
   };
 
-  const shortcutFilteredProducts = products.filter(p => {
-    if (!shortcutSearch.trim()) return true;
-    return p.nameAr.includes(shortcutSearch) || p.name.toLowerCase().includes(shortcutSearch.toLowerCase());
-  }).slice(0, 30);
+  const shortcutFilteredProducts = useMemo(() => {
+    const s = shortcutSearch.trim();
+    if (!s) return products.slice(0, 30);
+    const sLower = s.toLowerCase();
+    return products.filter(p =>
+      p.nameAr.includes(s) || p.name.toLowerCase().includes(sLower)
+    ).slice(0, 30);
+  }, [products, shortcutSearch]);
 
   // Print stock list
   const handlePrintStockList = (type: StockModal) => {

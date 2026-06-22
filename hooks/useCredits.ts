@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { subscribeCreditCustomers } from "@/lib/firestore/credits";
 import type { CreditCustomer } from "@/types/credit";
 
@@ -19,8 +19,14 @@ export function useCredits(storeId: string | undefined) {
     return () => { clearTimeout(timer); unsub(); };
   }, [storeId]);
 
-  const totalDebt = customers.reduce((sum, c) => sum + c.totalDebt, 0);
-  const activeCustomers = customers.filter((c) => c.isActive);
+  const totalDebt = useMemo(
+    () => customers.reduce((sum, c) => sum + c.totalDebt, 0),
+    [customers]
+  );
+  const activeCustomers = useMemo(
+    () => customers.filter((c) => c.isActive),
+    [customers]
+  );
 
   return { customers, activeCustomers, totalDebt, loading };
 }

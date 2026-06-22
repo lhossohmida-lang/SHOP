@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect, useDeferredValue } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProducts } from "@/hooks/useProducts";
 import { useUsbScanner } from "@/hooks/useUsbScanner";
@@ -112,13 +112,20 @@ export default function ProductsPage() {
   // قارئ USB عندما لا تكون أي خانة في وضع التركيز
   useUsbScanner(announceScannedProduct, !showForm && !productToDelete && !showBulkDeleteConfirm);
 
-  const filtered = products.filter(
-    (p) =>
-      !search ||
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.nameAr.includes(search) ||
-      productMatchesBarcodeSearch(p, search)
-  );
+  // البحث المؤجَّل: تبقى الكتابة فورية بينما يُعاد تصيير الجدول الكبير بأولوية أدنى
+  // (React 19) فلا تتجمّد الواجهة عند الكتابة في المتاجر ذات آلاف المنتجات.
+  const deferredSearch = useDeferredValue(search);
+  const filtered = useMemo(() => {
+    const s = deferredSearch.trim();
+    if (!s) return products;
+    const sLower = s.toLowerCase();
+    return products.filter(
+      (p) =>
+        p.name.toLowerCase().includes(sLower) ||
+        p.nameAr.includes(deferredSearch) ||
+        productMatchesBarcodeSearch(p, deferredSearch)
+    );
+  }, [products, deferredSearch]);
 
   const selectedProducts = useMemo(
     () => products.filter((p) => selectedIds.has(p.id)),

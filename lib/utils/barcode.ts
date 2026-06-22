@@ -42,6 +42,19 @@ export function normalizeScannedDigits(input: string): string {
   return normalizeDigits(mapped);
 }
 
+/**
+ * تحويل ذكي وآمن لأي خانة كتابة: إن كان النص يشبه باركوداً (لا يحتوي أي حرف لاتيني
+ * أو عربي) نحوّل رموز AZERTY إلى أرقام (&→1 …)؛ وإلا (نص فيه حروف = اسم) نكتفي بتحويل
+ * الأرقام العربية فقط حتى لا نُفسد الأسماء الفرنسية/العربية (café, Coca-Cola, حليب…).
+ * بهذا يُقرأ الباركود الممسوح أرقاماً في أي خانة دون إتلاف الكتابة العادية.
+ */
+export function normalizeBarcodeInput(input: string): string {
+  if (!input) return input;
+  // حروف لاتينية A-Z أو عربية U+0600..U+06FF → النص اسم، لا باركود.
+  const hasLetters = /[a-zA-Z؀-ۿ]/.test(input);
+  return hasLetters ? normalizeDigits(input) : normalizeScannedDigits(input);
+}
+
 /** A product can carry several barcodes; this is structural to avoid a type import. */
 interface HasBarcodes {
   barcode?: string;

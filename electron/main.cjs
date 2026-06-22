@@ -360,16 +360,24 @@ ipcMain.handle("print-html", async (_evt, { html, widthMm }) => {
     const heightMm = Math.max(35, (heightPx / 96) * 25.4 + 2);
     const micron = (mm) => Math.round(mm * 1000);
 
-    // اكتشف الطابعة الحرارية تلقائياً (Xprinter / POS / 80mm) لاستخدامها في الطباعة الصامتة
+    // اختيار الطابعة للطباعة الصامتة. الأولوية:
+    // 1) الاسم المُحدّد في POS_PRINTER_NAME (افتراضياً "xp-80c" — يطابق "xp-80c (copy 1)")
+    // 2) مطابقة نمطية (xp / pos / 80c / 80mm ...)  3) الافتراضية  4) الأولى
     let deviceName = "";
     try {
       const printers = await printWin.webContents.getPrintersAsync();
-      const thermal = printers.find((p) =>
-        /xp|xprinter|pos|thermal|receipt|80mm|58mm/i.test(`${p.name} ${p.displayName || ""}`)
+      const allNames = printers.map((p) => p.name).join(" | ");
+      const preferred = (process.env.POS_PRINTER_NAME || process.env.NEXT_PUBLIC_POS_PRINTER_NAME || "xp-80c")
+        .toLowerCase().trim();
+      const byPreferred = preferred
+        ? printers.find((p) => `${p.name} ${p.displayName || ""}`.toLowerCase().includes(preferred))
+        : null;
+      const byPattern = printers.find((p) =>
+        /xp|xprinter|pos|thermal|receipt|80c|80mm|58mm/i.test(`${p.name} ${p.displayName || ""}`)
       );
       const def = printers.find((p) => p.isDefault);
-      deviceName = (thermal || def || printers[0] || {}).name || "";
-      log(`print-html: using printer "${deviceName}" (${printers.length} available)`);
+      deviceName = (byPreferred || byPattern || def || printers[0] || {}).name || "";
+      log(`print-html: chosen="${deviceName}" | preferred="${preferred}" | available=[${allNames}]`);
     } catch (e) {
       log("print-html: getPrintersAsync failed", e);
     }

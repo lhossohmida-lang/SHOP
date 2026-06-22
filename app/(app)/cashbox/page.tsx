@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getSalesByDateRange } from "@/lib/firestore/sales";
 import { getExpensesByDateRange } from "@/lib/firestore/expenses";
@@ -27,11 +27,39 @@ export default function CashboxPage() {
   const [expensesTotal, setExpensesTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [fetched, setFetched] = useState(false);
+  const [msg, setMsg] = useState("");
+  const showMsg = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 3500); };
+
+  const filterRef = useRef<HTMLDivElement>(null);
 
   // استرجاع آخر قيم محفوظة
   useEffect(() => {
     setOpening(localStorage.getItem(LS_OPENING) || "");
     setLeaveForTomorrow(localStorage.getItem(LS_LEAVE) || "");
+  }, []);
+
+  // أسهم يمين/يسار: تذهب مباشرة لخانة التاريخ (عند دخول الصفحة). لا تتدخّل في خانات الكتابة الأخرى.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const container = filterRef.current;
+      if (!container) return;
+      const fields = Array.from(container.querySelectorAll("input, select")) as HTMLElement[];
+      if (fields.length === 0) return;
+      const active = document.activeElement as HTMLElement | null;
+      const idx = active ? fields.indexOf(active) : -1;
+      if (idx !== -1) {
+        if (fields.length < 2) return;
+        e.preventDefault();
+        const next = e.key === "ArrowLeft" ? idx + 1 : idx - 1;
+        fields[(next + fields.length) % fields.length]?.focus();
+      } else if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement)) {
+        e.preventDefault();
+        fields[0].focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const fetchDay = useCallback(async () => {
@@ -77,6 +105,15 @@ export default function CashboxPage() {
     localStorage.setItem(LS_LEAVE, n);
   };
 
+  // حفظ ما تركته في الصندوق: يُسجَّل ويُرحَّل ليكون رصيد الغد الافتتاحي.
+  const saveLeftover = () => {
+    const v = String(leaveNum);
+    localStorage.setItem(LS_LEAVE, v);
+    localStorage.setItem(LS_OPENING, v); // ما تركته الليلة = رصيد الغد الافتتاحي
+    setOpening(v);
+    showMsg(`✅ تم حفظ ما تركته في الصندوق: ${formatCurrency(leaveNum)} — سيكون رصيد الغد الافتتاحي`);
+  };
+
   const inputStyle: React.CSSProperties = {
     width: "100%", border: "1px solid #c5e5b8", borderRadius: "0.5rem",
     padding: "0.6rem 0.75rem", fontSize: "1.05rem", fontWeight: 700, direction: "ltr", textAlign: "center",
@@ -106,7 +143,10 @@ export default function CashboxPage() {
 
         {/* اختيار اليوم */}
         <div className="card" style={{ marginBottom: "1rem" }}>
-          <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div
+            ref={filterRef}
+            style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}
+          >
             <div>
               <label className="label">اليوم</label>
               <input type="date" className="input-field" value={date} onChange={e => setDate(e.target.value)} dir="ltr" style={{ textAlign: "left" }} />
@@ -175,9 +215,32 @@ export default function CashboxPage() {
                   ⚠️ المبلغ المتروك أكبر من النقد الموجود في الصندوق
                 </p>
               )}
+
+              {/* زر حفظ ما تركته في الصندوق */}
+              <button
+                onClick={saveLeftover}
+                style={{
+                  marginTop: "0.25rem", width: "100%", padding: "0.7rem 1rem",
+                  borderRadius: "0.625rem", border: "none", background: "#26683a",
+                  color: "white", cursor: "pointer", fontWeight: 700, fontSize: "0.95rem",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem",
+                }}
+              >
+                💾 حفظ ما تركته في الصندوق
+              </button>
             </div>
           </div>
         </div>
+
+        {/* رسالة الحفظ */}
+        {msg && (
+          <div style={{
+            position: "fixed", bottom: "1.5rem", left: "50%", transform: "translateX(-50%)",
+            padding: "0.75rem 1.5rem", borderRadius: "0.75rem", zIndex: 200,
+            background: "#26683a", color: "white", fontWeight: 600, fontSize: "0.875rem",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.2)", maxWidth: "90vw", textAlign: "center",
+          }}>{msg}</div>
+        )}
       </div>
     </PasswordGate>
   );

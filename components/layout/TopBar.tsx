@@ -1,7 +1,7 @@
 "use client";
 import { useAuth } from "@/hooks/useAuth";
-import { useOnlineStatus } from "@/hooks/useOnlineStatus";
-import { Wifi, WifiOff, Bell, Menu } from "lucide-react";
+import { useNetworkMode } from "@/hooks/useNetworkMode";
+import { Wifi, WifiOff, Menu } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
 
@@ -19,8 +19,20 @@ const pageTitles: Record<string, string> = {
 
 export default function TopBar() {
   const { appUser } = useAuth();
-  const isOnline = useOnlineStatus();
+  const { effectiveOnline, manualOffline, weak, latency, toggle } = useNetworkMode();
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // نص توضيحي لحالة الاتصال
+  const statusLabel = effectiveOnline
+    ? "متصل"
+    : weak
+      ? "ضعيف — غير متصل"
+      : "غير متصل";
+  const statusTitle = weak
+    ? `الاتصال ضعيف${latency != null ? ` (${latency}ms)` : ""} — تم التحويل التلقائي لعدم الاتصال (الحدّ 300ms)`
+    : effectiveOnline
+      ? `متصل${latency != null ? ` (${latency}ms)` : ""} — اضغط للتحويل لعدم الاتصال`
+      : "وضع عدم الاتصال اليدوي — اضغط للاتصال";
 
   return (
     <header
@@ -57,23 +69,28 @@ export default function TopBar() {
 
       {/* Left side: status + actions */}
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-        {/* Online status */}
-        <div
+        {/* زر تبديل الاتصال يدوياً (متصل / غير متصل) */}
+        <button
+          onClick={toggle}
+          title={statusTitle}
           style={{
             display: "flex",
             alignItems: "center",
             gap: "0.375rem",
-            padding: "0.25rem 0.75rem",
+            padding: "0.3rem 0.75rem",
             borderRadius: "9999px",
-            background: isOnline ? "#dff0d6" : "#fee2e2",
+            border: "none",
+            cursor: "pointer",
+            background: effectiveOnline ? "#dff0d6" : weak ? "#fef3c7" : "#fee2e2",
             fontSize: "0.75rem",
             fontWeight: 600,
-            color: isOnline ? "#26683a" : "#dc2626",
+            color: effectiveOnline ? "#26683a" : weak ? "#92400e" : "#dc2626",
+            transition: "all 0.15s",
           }}
         >
-          {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
-          <span className="hidden sm:inline">{isOnline ? "متصل" : "غير متصل"}</span>
-        </div>
+          {effectiveOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
+          <span className="hidden sm:inline">{statusLabel}</span>
+        </button>
 
         {/* POS shortcut */}
         <Link

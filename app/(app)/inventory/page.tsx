@@ -6,7 +6,7 @@ import { updateProduct } from "@/lib/firestore/products";
 import { getPosShortcuts, savePosShortcuts } from "@/lib/firestore/shortcuts";
 import { offlineAwareAwait } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
-import { productMatchesBarcodeSearch, normalizeScannedDigits } from "@/lib/utils/barcode";
+import { productMatchesBarcodeSearch, normalizeScannedDigits, normalizeBarcodeInput } from "@/lib/utils/barcode";
 import { Search, AlertTriangle, Edit2, Zap, X, Check, Printer, Plus, Layers } from "lucide-react";
 import QuickEditPanel from "@/components/products/QuickEditPanel";
 import Toast from "@/components/ui/Toast";
@@ -382,7 +382,7 @@ export default function InventoryPage() {
                   style={{ paddingRight: "2.25rem" }}
                   placeholder="ابحث عن منتج بالاسم أو الباركود..."
                   value={multiSearchQuery}
-                  onChange={(e) => setMultiSearchQuery(e.target.value)}
+                  onChange={(e) => setMultiSearchQuery(normalizeBarcodeInput(e.target.value))}
                   autoComplete="off"
                 />
               </div>
@@ -452,7 +452,7 @@ export default function InventoryPage() {
             value={search}
             onFocus={() => setShowEditDropdown(true)}
             onBlur={() => setTimeout(() => setShowEditDropdown(false), 150)}
-            onChange={e => { setSearch(normalizeScannedDigits(e.target.value)); setShowEditDropdown(true); }}
+            onChange={e => { setSearch(normalizeBarcodeInput(e.target.value)); setShowEditDropdown(true); }}
           />
           {search.trim() && showEditDropdown && filtered.length > 0 && (
             <div style={{

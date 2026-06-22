@@ -10,7 +10,7 @@ import { updateStock } from "@/lib/firestore/products";
 import { addCreditTransaction, updateCreditCustomer } from "@/lib/firestore/credits";
 import { offlineAwareAwait } from "@/lib/firestore/helpers";
 import { generateReceiptNumber } from "@/lib/utils/date";
-import { normalizeDigits, normalizeScannedDigits, productHasBarcode, productMatchesBarcodeSearch } from "@/lib/utils/barcode";
+import { normalizeDigits, normalizeScannedDigits, normalizeBarcodeInput, productHasBarcode, productMatchesBarcodeSearch } from "@/lib/utils/barcode";
 import { printReceipt } from "@/lib/utils/print";
 import BarcodeScanner from "@/components/pos/BarcodeScanner";
 import PosTable from "@/components/pos/PosTable";
@@ -40,6 +40,7 @@ export default function PosPage() {
   const [showCreditPanel, setShowCreditPanel] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: string; name: string; totalDebt: number; creditLimit: number } | null>(null);
   const [custSearch, setCustSearch] = useState("");
+  const [custSelIdx, setCustSelIdx] = useState(0); // الفهرس المحدَّد بالأسهم في نافذة الكريدي
   const [activeMobileTab, setActiveMobileTab] = useState<"cart" | "checkout">("cart");
 
   // Zero-stock modal
@@ -52,6 +53,13 @@ export default function PosPage() {
   const searchRef = useRef<HTMLInputElement>(null);
   // عند الطباعة على سطح المكتب تفقد النافذة التركيز؛ نعيده لخانة البحث عند عودة التركيز.
   const wantSearchFocusRef = useRef(false);
+  // هل هذه نافذة فُتحت بـ F1 (عميل جديد)؟ تُغلق تلقائياً بعد تأكيد الطلبية.
+  const isPopupRef = useRef(false);
+  useEffect(() => {
+    isPopupRef.current = new URLSearchParams(window.location.search).get("popup") === "1";
+  }, []);
+  // العنصر المحدَّد في قائمة الكريدي — لتمريره تلقائياً ضمن العرض عند التنقّل بالأسهم.
+  const custSelRef = useRef<HTMLButtonElement>(null);
 
   // المنتج الذي يجب تركيز حقله بعد الإضافة (nonce يتغيّر مع كل إضافة لإعادة التركيز).
   const [amountFocus, setAmountFocus] = useState<{ id: string; nonce: number }>({ id: "", nonce: 0 });
@@ -145,11 +153,15 @@ export default function PosPage() {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "F1") {
         e.preventDefault();
-        window.open(window.location.href, "_blank", "width=1200,height=800,menubar=no,toolbar=no,status=no");
+        // علّم النافذة الجديدة بـ popup=1 حتى تُغلق تلقائياً بعد تأكيد الطلبية
+        const url = new URL(window.location.href);
+        url.searchParams.set("popup", "1");
+        window.open(url.toString(), "_blank", "width=1200,height=800,menubar=no,toolbar=no,status=no");
       } else if (e.key === "F2") {
         e.preventDefault();
         setMode("credit");
         setShowCreditPanel(true);
+        setCustSelIdx(0);
       }
     };
     window.addEventListener("keydown", handler);
@@ -236,6 +248,12 @@ export default function PosPage() {
       // الوجهة الدائمة: خانة البحث بعد كل عملية بيع
       focusSearch();
 
+      // إن كانت نافذة F1 (عميل جديد): أغلقها تلقائياً بعد تأكيد الطلبية
+      // (مهلة قصيرة حتى تُرسَل الطباعة وتظهر رسالة النجاح).
+      if (isPopupRef.current) {
+        setTimeout(() => { try { window.close(); } catch {} }, shouldPrint ? 1800 : 900);
+      }
+
       // Print immediately
       if (shouldPrint) {
         wantSearchFocusRef.current = true; // أعد التركيز لخانة البحث بعد إغلاق نافذة الطباعة
@@ -287,10 +305,10 @@ export default function PosPage() {
     await handleConfirm(true);
   }, [handleConfirm]);
 
-  // F9 → confirm + print, F10 → confirm without print (after handleConfirm is defined)
+  // F3 → confirm + print, F10 → confirm without print (after handleConfirm is defined)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "F9") {
+      if (e.key === "F3") {
         e.preventDefault();
         handleConfirm(true); // تأكيد الطلبية مع الطباعة
       } else if (e.key === "F10") {
@@ -305,6 +323,19 @@ export default function PosPage() {
   const filteredCustomers = activeCustomers.filter(c =>
     !custSearch || c.name.includes(custSearch) || c.phone.includes(custSearch)
   );
+
+  // اختيار عميل الكريدي (يُستعمل بالنقر وبمفتاح Enter)
+  const chooseCustomer = (c: { id: string; name: string; totalDebt: number; creditLimit: number }) => {
+    setSelectedCustomer({ id: c.id, name: c.name, totalDebt: c.totalDebt, creditLimit: c.creditLimit });
+    setShowCreditPanel(false);
+    setCustSearch("");
+    setCustSelIdx(0);
+  };
+
+  // مرّر العنصر المحدَّد ضمن العرض عند تغيّره بالأسهم (تنزل القائمة معك)
+  useEffect(() => {
+    if (showCreditPanel) custSelRef.current?.scrollIntoView({ block: "nearest" });
+  }, [custSelIdx, showCreditPanel]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 80px)", gap: "0.75rem" }}>
@@ -381,7 +412,7 @@ export default function PosPage() {
             placeholder="ابحث بالاسم أو الباركود، أو امسح مباشرة..."
             value={search}
             autoComplete="off"
-            onChange={e => { setSearch(normalizeDigits(e.target.value)); setShowDropdown(true); setSelIdx(0); }}
+            onChange={e => { setSearch(normalizeBarcodeInput(e.target.value)); setShowDropdown(true); setSelIdx(0); }}
             onFocus={() => setShowDropdown(true)}
             onKeyDown={e => {
               // السهم لأسفل: تنقّل الاقتراحات إن وُجدت، وإلا انزل إلى السلة للتعديل
@@ -539,7 +570,7 @@ export default function PosPage() {
                 <span className="badge-green">{cart.lines.length} صنف</span>
               )}
               <span style={{ marginRight: "auto", fontSize: "0.72rem", color: "#9ca3af", display: "flex", alignItems: "center", gap: "0.25rem", flexWrap: "wrap" }}>
-                <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: "0.7rem", fontFamily: "monospace" }}>F1</kbd> نافذة &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #fde68a", background: "#fffbeb", fontSize: "0.7rem", fontFamily: "monospace", color: "#92400e" }}>F2</kbd> كريدي &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #c5e5b8", background: "#f1f8ee", fontSize: "0.7rem", fontFamily: "monospace", color: "#26683a" }}>F9</kbd> طباعة وتأكيد &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #c5e5b8", background: "#f1f8ee", fontSize: "0.7rem", fontFamily: "monospace", color: "#26683a" }}>F10</kbd> تأكيد بدون طباعة
+                <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #e5e7eb", background: "#f9fafb", fontSize: "0.7rem", fontFamily: "monospace" }}>F1</kbd> نافذة &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #fde68a", background: "#fffbeb", fontSize: "0.7rem", fontFamily: "monospace", color: "#92400e" }}>F2</kbd> كريدي &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #c5e5b8", background: "#f1f8ee", fontSize: "0.7rem", fontFamily: "monospace", color: "#26683a" }}>F3</kbd> طباعة وتأكيد &nbsp;|&nbsp; <kbd style={{ padding: "1px 4px", borderRadius: "3px", border: "1px solid #c5e5b8", background: "#f1f8ee", fontSize: "0.7rem", fontFamily: "monospace", color: "#26683a" }}>F10</kbd> تأكيد بدون طباعة
               </span>
             </div>
             <PosTable
@@ -604,22 +635,36 @@ export default function PosPage() {
             </div>
             <input
               className="input-field"
-              placeholder="ابحث باسم العميل أو هاتفه..."
+              placeholder="ابحث باسم العميل أو هاتفه... (أسهم ↑↓ ثم Enter للاختيار)"
               value={custSearch}
-              onChange={e => setCustSearch(e.target.value)}
+              onChange={e => { setCustSearch(e.target.value); setCustSelIdx(0); }}
+              onKeyDown={e => {
+                if (e.key === "ArrowDown") { e.preventDefault(); setCustSelIdx(i => Math.min(i + 1, filteredCustomers.length - 1)); }
+                else if (e.key === "ArrowUp") { e.preventDefault(); setCustSelIdx(i => Math.max(i - 1, 0)); }
+                else if (e.key === "Enter") {
+                  e.preventDefault();
+                  const c = filteredCustomers[Math.min(custSelIdx, filteredCustomers.length - 1)];
+                  if (c) chooseCustomer(c);
+                }
+              }}
               style={{ marginBottom: "0.75rem" }}
               autoFocus
             />
             <div style={{ flex: 1, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: "0.625rem" }}>
               {filteredCustomers.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "2rem", color: "#9ca3af" }}>لا يوجد عميل مطابق</div>
-              ) : filteredCustomers.map(c => {
+              ) : filteredCustomers.map((c, i) => {
                 const sel = selectedCustomer?.id === c.id;
+                const highlighted = i === Math.min(custSelIdx, filteredCustomers.length - 1);
                 return (
-                  <button key={c.id} onClick={() => { setSelectedCustomer({ id: c.id, name: c.name, totalDebt: c.totalDebt, creditLimit: c.creditLimit }); setShowCreditPanel(false); setCustSearch(""); }}
+                  <button key={c.id} onClick={() => chooseCustomer(c)}
+                    ref={highlighted ? custSelRef : undefined}
+                    onMouseEnter={() => setCustSelIdx(i)}
                     style={{
-                      width: "100%", padding: "0.75rem 1rem", background: sel ? "#fef9c3" : "none",
+                      width: "100%", padding: "0.75rem 1rem",
+                      background: highlighted ? "#eaf6e3" : sel ? "#fef9c3" : "none",
                       border: "none", borderBottom: "1px solid #f3f4f6", cursor: "pointer",
+                      borderRight: highlighted ? "3px solid #49a35c" : "3px solid transparent",
                       display: "flex", justifyContent: "space-between", textAlign: "right",
                     }}>
                     <div>

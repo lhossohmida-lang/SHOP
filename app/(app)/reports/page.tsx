@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getSalesByDateRange, returnSaleItems, deleteSaleAndRestoreStock } from "@/lib/firestore/sales";
 import { getExpensesByDateRange } from "@/lib/firestore/expenses";
@@ -61,6 +61,45 @@ export default function ReportsPage() {
       setLoading(false);
     }
   };
+
+  const filterRef = useRef<HTMLDivElement>(null);
+
+  // الضغط على Enter في صفحة التقارير = عرض التقرير (إلا داخل حقل كلمة المرور).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && el.getAttribute("type") === "password") return; // لا تتدخّل في بوابة كلمة المرور
+      if (!loading) fetchReport();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, startDate, endDate, storeId]);
+
+  // أسهم يمين/يسار: تنقّل بين خانات التاريخ. وإن لم يكن التركيز في أي خانة (دخلت الصفحة للتو)
+  // ينتقل مباشرة لأول خانة تاريخ. لا يتدخّل إن كان التركيز في خانة كتابة أخرى.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const container = filterRef.current;
+      if (!container) return;
+      const fields = Array.from(container.querySelectorAll("input, select")) as HTMLElement[];
+      if (fields.length === 0) return;
+      const active = document.activeElement as HTMLElement | null;
+      const idx = active ? fields.indexOf(active) : -1;
+      if (idx !== -1) {
+        e.preventDefault();
+        const next = e.key === "ArrowLeft" ? idx + 1 : idx - 1; // RTL: يسار=التالي
+        fields[(next + fields.length) % fields.length]?.focus();
+      } else if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement)) {
+        e.preventDefault();
+        fields[0].focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // فتح نافذة الإرجاع (تسمح بإرجاع صنف واحد، أو بعض الأصناف، أو كلها).
   const openReturn = (sale: Sale) => {
@@ -215,7 +254,10 @@ export default function ReportsPage() {
 
       {/* Filters */}
       <div className="card" style={{ marginBottom: "1rem" }}>
-        <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div
+          ref={filterRef}
+          style={{ display: "flex", gap: "0.75rem", alignItems: "flex-end", flexWrap: "wrap" }}
+        >
           <div>
             <label className="label">من تاريخ</label>
             <input type="date" className="input-field" value={startDate} onChange={e => setStartDate(e.target.value)} dir="ltr" style={{ textAlign: "left" }} />

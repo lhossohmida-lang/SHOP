@@ -6,7 +6,7 @@ import { useUsbScanner } from "@/hooks/useUsbScanner";
 import { addProduct, updateProduct, deleteProduct } from "@/lib/firestore/products";
 import { isOffline, offlineAwareAwait, offlineAwareDelete } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
-import { normalizeDigits, normalizeScannedDigits, productHasBarcode, productMatchesBarcodeSearch } from "@/lib/utils/barcode";
+import { normalizeDigits, normalizeScannedDigits, normalizeBarcodeInput, productHasBarcode, productMatchesBarcodeSearch } from "@/lib/utils/barcode";
 import { printProductLabel, printProductLabelsBatch } from "@/lib/utils/print";
 import { ProductForm } from "@/components/products/ProductForm";
 import QuickEditPanel from "@/components/products/QuickEditPanel";
@@ -343,7 +343,7 @@ export default function ProductsPage() {
                   style={{ paddingRight: "2.25rem" }}
                   placeholder="ابحث عن منتج بالاسم أو الباركود..."
                   value={multiSearchQuery}
-                  onChange={(e) => setMultiSearchQuery(e.target.value)}
+                  onChange={(e) => setMultiSearchQuery(normalizeBarcodeInput(e.target.value))}
                   autoComplete="off"
                 />
               </div>
@@ -418,7 +418,7 @@ export default function ProductsPage() {
           value={search}
           autoFocus
           autoComplete="off"
-          onChange={(e) => { setSearch(normalizeDigits(e.target.value)); }}
+          onChange={(e) => { setSearch(normalizeBarcodeInput(e.target.value)); }}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               // حوّل رموز لوحة المفاتيح الفرنسية/العربية إلى أرقام لاكتشاف الباركود الممسوح

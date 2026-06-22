@@ -9,7 +9,7 @@ import { updateProduct } from "@/lib/firestore/products";
 import { isOffline, offlineAwareAwait } from "@/lib/firestore/helpers";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDateTime } from "@/lib/utils/date";
-import { normalizeDigits, normalizeScannedDigits, productHasBarcode, productMatchesBarcodeSearch } from "@/lib/utils/barcode";
+import { normalizeDigits, normalizeScannedDigits, normalizeBarcodeInput, productHasBarcode, productMatchesBarcodeSearch } from "@/lib/utils/barcode";
 import BarcodeScanner from "@/components/pos/BarcodeScanner";
 import Toast from "@/components/ui/Toast";
 import { Plus, X, Trash2, Search, TruckIcon, Camera } from "lucide-react";
@@ -147,9 +147,17 @@ export default function PurchasesPage() {
       ...purchaseItems.flatMap((item) => {
         const p = productsById.get(item.productId);
         if (!p) return [];
+        // المتوسط المرجّح لسعر الشراء: (مخزون قديم×سعر قديم + كمية جديدة×سعر جديد) ÷ المجموع.
+        // إن كان المخزون القديم ≤ 0 (لا بضاعة سابقة) فالسعر = سعر الشراء الجديد.
+        const oldStock = Math.max(0, p.stock);
+        const totalQty = oldStock + item.quantity;
+        const avgCost = totalQty > 0
+          ? (oldStock * p.purchasePrice + item.quantity * item.unitCost) / totalQty
+          : item.unitCost;
+        const newPurchasePrice = Math.round(avgCost * 100) / 100; // تقريب لخانتين عشريتين
         return updateProduct(storeId, item.productId, {
           stock: p.stock + item.quantity,
-          purchasePrice: item.unitCost,
+          purchasePrice: newPurchasePrice,
         });
       }),
     ];
@@ -293,7 +301,7 @@ export default function PurchasesPage() {
                     style={{ paddingRight: "2rem" }}
                     placeholder="ابحث أو امسح الباركود..."
                     value={productSearch}
-                    onChange={(e) => setProductSearch(normalizeDigits(e.target.value))}
+                    onChange={(e) => setProductSearch(normalizeBarcodeInput(e.target.value))}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         // الباركود الممسوح قد يصل برموز لوحة المفاتيح الفرنسية → حوّله لأرقام

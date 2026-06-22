@@ -12,6 +12,7 @@ import {
   addAjalTransaction, addAjalDebt, getAjalTransactions,
 } from "@/lib/firestore/ajal";
 import { getSale } from "@/lib/firestore/sales";
+import { normalizeBarcodeInput } from "@/lib/utils/barcode";
 import { formatCurrency } from "@/lib/utils/currency";
 import { formatDate, formatDateTime } from "@/lib/utils/date";
 import { printCustomerStatement } from "@/lib/utils/print";
@@ -352,7 +353,7 @@ export default function CreditsPage() {
           style={{ paddingRight: "2.25rem" }}
           placeholder="بحث بالاسم أو الهاتف..."
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => setSearch(normalizeBarcodeInput(e.target.value))}
         />
       </div>
 
